@@ -1,0 +1,43 @@
+<script type="text/javascript">
+  RED.nodes.registerType('eelectron-knxip-state-store', {
+    category: 'eelectron-knxip',
+    color: '#9CC78B',
+    defaults: {
+      name: { value: '' },
+      maxEntries: { value: 0, validate: RED.validators.number(true) },
+    },
+    inputs: 1,
+    outputs: 1,
+    icon: 'KNX_logo.svg',
+    paletteLabel: 'state store',
+    label: function () {
+      return this.name || 'knx state store';
+    },
+  });
+</script>
+
+<script type="text/html" data-template-name="eelectron-knxip-state-store">
+  <div class="form-row">
+    <label for="node-input-name"><i class="fa fa-tag"></i> Name</label>
+    <input type="text" id="node-input-name" />
+  </div>
+  <div class="form-row">
+    <label for="node-input-maxEntries"><i class="fa fa-hashtag"></i> Max entries</label>
+    <input type="number" id="node-input-maxEntries" min="0" placeholder="0 = unlimited" />
+  </div>
+</script>
+
+<script type="text/html" data-help-name="eelectron-knxip-state-store">
+  <p>Caches the last-known value per group address and answers queries.</p>
+
+  <h3>Modes (selected via <code>msg.action</code>)</h3>
+  <ul>
+    <li><b>set</b> (default): records <code>msg.payload</code> indexed by <code>msg.topic</code> (the GA). The message passes through unchanged.</li>
+    <li><b>get</b>: emits the stored value for <code>msg.topic</code> as <code>msg.payload</code>. <code>msg.knx.found</code> indicates whether the GA was known. Storage metadata (<code>storedAt</code>, <code>dpt</code>, <code>gaName</code>) is added when present.</li>
+    <li><b>list</b>: emits a snapshot of all entries as <code>msg.payload</code> (array).</li>
+    <li><b>clear</b>: clears every entry. With <code>msg.topic</code> set, clears only that GA.</li>
+  </ul>
+
+  <h3>Typical wiring</h3>
+  <p>Pipe a <code>knxip listener</code> into the input to populate the cache automatically. Other flows can then send <code>{action:'get', topic:'1/2/3'}</code> to retrieve the latest value without re-reading the bus.</p>
+</script>

@@ -1,0 +1,156 @@
+<script type="text/javascript">
+  RED.nodes.registerType('eelectron-knxip-config', {
+    category: 'config',
+    defaults: {
+      name: { value: '' },
+      gatewayIp: { value: '', required: true, validate: RED.validators.regex(/^\d{1,3}(\.\d{1,3}){3}$/) },
+      gatewayPort: { value: 3671, validate: RED.validators.number() },
+      localIp: { value: '' },
+      localPort: { value: '' },
+      routeBack: { value: undefined },
+      requestedIndividualAddress: { value: '' },
+      groupAddressStyle: { value: 'long' },
+      autoReconnect: { value: true },
+      autoReconnectWaitMs: { value: 3000, validate: RED.validators.number() },
+      heartbeatIntervalMs: { value: 20000, validate: RED.validators.number() },
+    },
+    label: function () {
+      return this.name || `${this.gatewayIp}:${this.gatewayPort || 3671}`;
+    },
+    oneditprepare: function () {
+      var $btn = $('#ets-discover-btn');
+      var $status = $('#ets-discover-status');
+      var $select = $('#ets-discover-select');
+      var $localIp = $('#node-config-input-localIp');
+
+      function setBusy(busy) {
+        $btn.prop('disabled', busy);
+        $btn.text(busy ? 'Discovering…' : 'Discover');
+      }
+
+      $btn.on('click', function () {
+        setBusy(true);
+        $status.text('Searching for KNX/IP gateways on the local network…');
+        $select.empty().hide();
+
+        var body = { timeoutMs: 3000 };
+        var localIp = ($localIp.val() || '').trim();
+        if (localIp) body.localAddress = localIp;
+
+        $.ajax({
+          url: 'eelectron-knxip/discover-gateways',
+          type: 'POST',
+          contentType: 'application/json',
+          data: JSON.stringify(body),
+        })
+          .done(function (gateways) {
+            setBusy(false);
+            if (!Array.isArray(gateways) || gateways.length === 0) {
+              $status.text('No gateways responded. Check that the host can reach the multicast group 224.0.23.12 (some VPNs/Docker bridges block it).');
+              return;
+            }
+            $status.text('Found ' + gateways.length + ' gateway(s). Pick one to fill the form:');
+            $select.empty().show();
+            $select.append($('<option/>').val('').text('— select a gateway —'));
+            gateways.forEach(function (g, i) {
+              var label = (g.friendlyName || '(unnamed)') + ' — ' + g.address + ':' + g.port;
+              if (g.individualAddress) label += '  [' + g.individualAddress + ']';
+              $select.append(
+                $('<option/>')
+                  .val(String(i))
+                  .text(label)
+                  .data('gateway', g),
+              );
+            });
+          })
+          .fail(function (xhr) {
+            setBusy(false);
+            var msg = 'Discovery failed';
+            try {
+              var e = xhr.responseJSON && xhr.responseJSON.error;
+              if (e) msg += ': ' + e;
+            } catch (e) {}
+            $status.text(msg);
+          });
+      });
+
+      $select.on('change', function () {
+        var opt = $select.find('option:selected');
+        var g = opt.data('gateway');
+        if (!g) return;
+        $('#node-config-input-gatewayIp').val(g.address);
+        $('#node-config-input-gatewayPort').val(g.port);
+        if (!$('#node-config-input-name').val() && g.friendlyName) {
+          $('#node-config-input-name').val(g.friendlyName);
+        }
+      });
+    },
+  });
+</script>
+
+<script type="text/html" data-template-name="eelectron-knxip-config">
+  <div class="form-row">
+    <label for="node-config-input-name"><i class="fa fa-tag"></i> Name</label>
+    <input type="text" id="node-config-input-name" />
+  </div>
+  <div class="form-row">
+    <label for="node-config-input-gatewayIp"><i class="fa fa-globe"></i> Gateway IP</label>
+    <input type="text" id="node-config-input-gatewayIp" placeholder="192.168.1.10" style="width: calc(70% - 30px)" />
+    <button type="button" class="red-ui-button" id="ets-discover-btn" style="margin-left: 6px;">Discover</button>
+  </div>
+  <div class="form-row" style="margin-top: -6px;">
+    <label></label>
+    <span id="ets-discover-status" style="color:#888;font-style:italic;"></span>
+  </div>
+  <div class="form-row" style="margin-top: -6px;">
+    <label></label>
+    <select id="ets-discover-select" style="width: 70%; display: none;"></select>
+  </div>
+  <div class="form-row">
+    <label for="node-config-input-gatewayPort"><i class="fa fa-plug"></i> Port</label>
+    <input type="number" id="node-config-input-gatewayPort" />
+  </div>
+  <div class="form-row">
+    <label for="node-config-input-localIp"><i class="fa fa-arrow-left"></i> Local IP</label>
+    <input type="text" id="node-config-input-localIp" placeholder="(blank → route-back)" />
+  </div>
+  <div class="form-row">
+    <label for="node-config-input-localPort"><i class="fa fa-arrow-left"></i> Local Port</label>
+    <input type="number" id="node-config-input-localPort" placeholder="(blank → OS-assigned)" />
+  </div>
+  <div class="form-row">
+    <label for="node-config-input-requestedIndividualAddress"><i class="fa fa-id-card"></i> Requested IA</label>
+    <input type="text" id="node-config-input-requestedIndividualAddress" placeholder="(optional, e.g. 1.1.250)" />
+  </div>
+  <div class="form-row">
+    <label for="node-config-input-groupAddressStyle"><i class="fa fa-list"></i> GA style</label>
+    <select id="node-config-input-groupAddressStyle">
+      <option value="long">Long (1/2/3)</option>
+      <option value="short">Short (1/123)</option>
+      <option value="free">Free (1234)</option>
+    </select>
+  </div>
+  <div class="form-row">
+    <label for="node-config-input-autoReconnect"><i class="fa fa-refresh"></i> Auto reconnect</label>
+    <input type="checkbox" id="node-config-input-autoReconnect" style="width:auto" />
+  </div>
+  <div class="form-row">
+    <label for="node-config-input-autoReconnectWaitMs"><i class="fa fa-clock-o"></i> Reconnect wait (ms)</label>
+    <input type="number" id="node-config-input-autoReconnectWaitMs" />
+  </div>
+  <div class="form-row">
+    <label for="node-config-input-heartbeatIntervalMs"><i class="fa fa-heartbeat"></i> Heartbeat (ms)</label>
+    <input type="number" id="node-config-input-heartbeatIntervalMs" />
+  </div>
+</script>
+
+<script type="text/html" data-help-name="eelectron-knxip-config">
+  <p>Connection settings for a single KNX/IP gateway.</p>
+  <p>Multiple instances of this node can coexist — each holds its own UDP tunnel.</p>
+  <p>Leave <b>Local IP</b> blank to use route-back (recommended for Docker/NAT setups).</p>
+  <h3>Discover</h3>
+  <p>Click <b>Discover</b> to send a multicast SEARCH_REQUEST and list gateways that
+  respond. Selecting one fills the Gateway IP, Port, and (if blank) Name fields.
+  If you have multiple network interfaces, set the Local IP first to choose which
+  one the discovery probes go out on.</p>
+</script>

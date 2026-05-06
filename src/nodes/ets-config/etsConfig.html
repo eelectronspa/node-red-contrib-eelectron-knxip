@@ -1,0 +1,114 @@
+<script type="text/javascript">
+  RED.nodes.registerType('eelectron-knxip-ets-config', {
+    category: 'config',
+    defaults: {
+      name: { value: '' },
+      csvData: { value: '' },
+      csvSource: { value: 'unknown' },
+    },
+    label: function () {
+      return this.name || 'ETS project';
+    },
+    oneditprepare: function () {
+      var node = this;
+      var $file = $('#ets-config-file');
+      var $clear = $('#ets-config-clear');
+      var $status = $('#ets-config-status');
+      var $textarea = $('#node-config-input-csvData');
+      var $source = $('#node-config-input-csvSource');
+
+      function refreshStatus() {
+        var text = ($textarea.val() || '').trim();
+        if (!text) {
+          $status.text('No CSV loaded');
+          return;
+        }
+        var lines = text.split(/\r?\n/).filter(function (l) { return l.trim() !== ''; }).length;
+        $status.text('Loaded — ' + lines + ' line(s), ' + text.length + ' chars');
+      }
+
+      $file.on('change', function (evt) {
+        var file = (evt.target.files || [])[0];
+        if (!file) return;
+        var reader = new FileReader();
+        reader.onload = function (e) {
+          $textarea.val(e.target.result);
+          $source.val('upload');
+          refreshStatus();
+        };
+        reader.readAsText(file);
+      });
+
+      $clear.on('click', function () {
+        $textarea.val('');
+        $source.val('unknown');
+        $file.val('');
+        refreshStatus();
+      });
+
+      $textarea.on('input', refreshStatus);
+      refreshStatus();
+    },
+  });
+</script>
+
+<script type="text/html" data-template-name="eelectron-knxip-ets-config">
+  <div class="form-row">
+    <label for="node-config-input-name"><i class="fa fa-tag"></i> Name</label>
+    <input type="text" id="node-config-input-name" />
+  </div>
+  <div class="form-row">
+    <label><i class="fa fa-upload"></i> CSV file</label>
+    <input type="file" id="ets-config-file" accept=".csv,.txt" style="width:auto;" />
+    <button type="button" class="red-ui-button" id="ets-config-clear" style="margin-left:6px;">Clear</button>
+  </div>
+  <div class="form-row" style="margin-top:-6px;">
+    <label></label>
+    <span id="ets-config-status" style="color:#888;font-style:italic;">No CSV loaded</span>
+  </div>
+  <div class="form-row" style="margin-bottom: 0;">
+    <label for="node-config-input-csvData"><i class="fa fa-file-text-o"></i> CSV content</label>
+  </div>
+  <div class="form-row">
+    <textarea id="node-config-input-csvData" rows="10" style="width:100%;font-family:monospace;font-size:11px;"
+              placeholder="Or paste the ETS group-address CSV export here…"></textarea>
+  </div>
+  <input type="hidden" id="node-config-input-csvSource" />
+</script>
+
+<script type="text/html" data-help-name="eelectron-knxip-ets-config">
+  <p>Holds a parsed ETS project so other nodes can look up the DPT, name, and
+  description for a given group address automatically.</p>
+
+  <h3>How to use</h3>
+  <ol>
+    <li>In ETS, export the group addresses to CSV (with the DatapointType column).</li>
+    <li>Either upload that file here, or paste its contents into the textarea.</li>
+    <li>Reference this config from any of:
+      <ul>
+        <li><code>knxip ets</code> — translator with auto/decode/encode modes</li>
+        <li><code>knxip listener</code> — auto-decodes inbound telegrams using the
+          per-GA DPT; supports an "All from ETS" subscription mode</li>
+        <li><code>knxip writer</code> — encodes outbound payloads using the per-GA
+          DPT when none is supplied on the message</li>
+      </ul>
+    </li>
+  </ol>
+
+  <h3>Supported CSV variants</h3>
+  <ul>
+    <li>Comma, semicolon, or tab delimiters (auto-detected)</li>
+    <li>With or without header row</li>
+    <li>The standard ETS hierarchical 9-column export
+      (<code>Main, Middle, Sub, Address, …, DatapointType, Security</code>);
+      parent pseudo-rows like <code>1/-/-</code> are silently skipped.</li>
+  </ul>
+
+  <h3>DPT id normalisation</h3>
+  <p>Accepts <code>DPST-1-1</code>, <code>DPT-9.001</code>, <code>1.001</code>, plain
+  <code>DPT-7</code> (falls back to <code>7.001</code>), etc. — all normalised
+  to <code>main.sub</code> form before codec lookup.</p>
+
+  <p>Multiple ETS configs can coexist — useful for handling several KNX projects
+  in one Node-RED instance.</p>
+</script>

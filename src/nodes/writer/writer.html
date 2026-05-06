@@ -1,0 +1,169 @@
+<script type="text/javascript">
+  RED.nodes.registerType('eelectron-knxip-writer', {
+    category: 'eelectron-knxip',
+    color: '#9CC78B',
+    defaults: {
+      name: { value: '' },
+      config: { value: '', type: 'eelectron-knxip-config', required: true },
+      etsConfig: { value: '', type: 'eelectron-knxip-ets-config', required: false },
+      groupAddress: { value: '' },
+      dpt: { value: '' },
+      dedupeWindowMs: { value: 0, validate: RED.validators.number(true) },
+    },
+    inputs: 1,
+    outputs: 0,
+    icon: 'KNX_logo.svg',
+    paletteLabel: 'writer',
+    align: 'right',
+    label: function () {
+      return this.name || 'knx writer';
+    },
+    oneditprepare: function () {
+      var $ga = $('#node-input-groupAddress');
+      var $dpt = $('#node-input-dpt');
+      var $ets = $('#node-input-etsConfig');
+
+      // Cache ETS GA list per session per config id, refreshed on dropdown change.
+      var gaCache = null;
+      var gaCacheFor = null;
+      function loadGaList(cb) {
+        var cfgId = $ets.val();
+        if (!cfgId || cfgId === '_ADD_') {
+          gaCache = null;
+          gaCacheFor = null;
+          cb([]);
+          return;
+        }
+        if (gaCacheFor === cfgId && gaCache) {
+          cb(gaCache);
+          return;
+        }
+        $.getJSON(
+          'eelectron-knxip-ets-config/' + encodeURIComponent(cfgId) + '/group-addresses',
+          function (list) {
+            gaCache = list || [];
+            gaCacheFor = cfgId;
+            cb(gaCache);
+          },
+        ).fail(function () {
+          cb([]);
+        });
+      }
+
+      $ga.autocomplete({
+        minLength: 0,
+        delay: 100,
+        source: function (req, resp) {
+          loadGaList(function (list) {
+            var term = (req.term || '').toLowerCase();
+            var matches = list
+              .filter(function (e) {
+                return (
+                  e.ga.indexOf(term) !== -1 ||
+                  (e.name || '').toLowerCase().indexOf(term) !== -1
+                );
+              })
+              .slice(0, 50)
+              .map(function (e) {
+                return {
+                  label:
+                    e.ga +
+                    (e.name ? ' — ' + e.name : '') +
+                    (e.dpt ? ' [' + e.dpt + ']' : ''),
+                  value: e.ga,
+                };
+              });
+            resp(matches);
+          });
+        },
+      });
+      $ga.on('focus', function () {
+        $ga.autocomplete('search', $ga.val() || '');
+      });
+
+      // DPT autocomplete (sourced from the codec registry)
+      var dptCache = null;
+      function loadDpts(cb) {
+        if (dptCache) {
+          cb(dptCache);
+          return;
+        }
+        $.getJSON('eelectron-knxip/dpts', function (list) {
+          dptCache = list || [];
+          cb(dptCache);
+        }).fail(function () {
+          cb([]);
+        });
+      }
+      $dpt.autocomplete({
+        minLength: 0,
+        delay: 100,
+        source: function (req, resp) {
+          loadDpts(function (list) {
+            var term = (req.term || '').toLowerCase();
+            var matches = list
+              .filter(function (d) {
+                return (
+                  d.id.indexOf(term) !== -1 ||
+                  (d.name || '').toLowerCase().indexOf(term) !== -1
+                );
+              })
+              .slice(0, 50)
+              .map(function (d) {
+                return {
+                  label: d.id + ' — ' + d.name + (d.unit ? ' (' + d.unit + ')' : ''),
+                  value: d.id,
+                };
+              });
+            resp(matches);
+          });
+        },
+      });
+      $dpt.on('focus', function () {
+        $dpt.autocomplete('search', $dpt.val() || '');
+      });
+    },
+  });
+</script>
+
+<script type="text/html" data-template-name="eelectron-knxip-writer">
+  <div class="form-row">
+    <label for="node-input-name"><i class="fa fa-tag"></i> Name</label>
+    <input type="text" id="node-input-name" />
+  </div>
+  <div class="form-row">
+    <label for="node-input-config"><i class="fa fa-cog"></i> Tunnel</label>
+    <input type="text" id="node-input-config" />
+  </div>
+  <div class="form-row">
+    <label for="node-input-etsConfig"><i class="fa fa-book"></i> ETS project</label>
+    <input type="text" id="node-input-etsConfig" />
+  </div>
+  <div class="form-row">
+    <label for="node-input-groupAddress"><i class="fa fa-tag"></i> Default GA</label>
+    <input type="text" id="node-input-groupAddress"
+      placeholder="e.g. 1/2/3 (override with msg.topic)" />
+  </div>
+  <div class="form-row">
+    <label for="node-input-dpt"><i class="fa fa-cog"></i> DPT (optional)</label>
+    <input type="text" id="node-input-dpt"
+      placeholder="e.g. 1.001 (override with msg.dpt)" />
+  </div>
+  <div class="form-row">
+    <label for="node-input-dedupeWindowMs"><i class="fa fa-shield"></i> Dedupe (ms)</label>
+    <input type="number" id="node-input-dedupeWindowMs" min="0" placeholder="0 = disabled" />
+  </div>
+</script>
+
+<script type="text/html" data-help-name="eelectron-knxip-writer">
+  <p>Sends a KNX <code>GroupValueWrite</code> on each input message.</p>
+  <ul>
+    <li><b>Group address</b>: <code>msg.topic</code> overrides the configured default.</li>
+    <li><b>ETS project</b>: when bound, the writer uses the project's per-GA DPT for encoding when no other DPT is supplied.</li>
+    <li><b>DPT</b>: <code>msg.dpt</code> overrides the configured default and the ETS-mapped DPT.</li>
+    <li>If <code>msg.read === true</code> or <code>msg.payload === undefined</code>, sends a <code>GroupValueRead</code> instead.</li>
+    <li><b>Dedupe (ms)</b>: identical writes (same GA + value) within the window are dropped. <code>0</code> disables.</li>
+  </ul>
+  <p><b>DPT resolution order:</b> <code>msg.dpt</code> → node default → ETS map → fallback coercion.</p>
+  <p>The Default GA and DPT inputs offer typeahead suggestions sourced from the bound ETS project (if any).</p>
+</script>

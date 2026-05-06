@@ -1,0 +1,60 @@
+<script type="text/javascript">
+  RED.nodes.registerType('eelectron-knxip-status', {
+    category: 'eelectron-knxip',
+    color: '#9CC78B',
+    defaults: {
+      name: { value: '' },
+      config: { value: '', type: 'eelectron-knxip-config', required: true },
+      cyclicIntervalMs: { value: 0, validate: RED.validators.number(true) },
+    },
+    inputs: 0,
+    outputs: 1,
+    icon: 'KNX_logo.svg',
+    paletteLabel: 'tunnel status',
+    label: function () {
+      return this.name || 'knx tunnel status';
+    },
+  });
+</script>
+
+<script type="text/html" data-template-name="eelectron-knxip-status">
+  <div class="form-row">
+    <label for="node-input-name"><i class="fa fa-tag"></i> Name</label>
+    <input type="text" id="node-input-name" />
+  </div>
+  <div class="form-row">
+    <label for="node-input-config"><i class="fa fa-cog"></i> Tunnel</label>
+    <input type="text" id="node-input-config" />
+  </div>
+  <div class="form-row">
+    <label for="node-input-cyclicIntervalMs"><i class="fa fa-clock-o"></i> Cyclic emit (ms)</label>
+    <input type="number" id="node-input-cyclicIntervalMs" min="0" placeholder="0 = only on state change" />
+  </div>
+</script>
+
+<script type="text/html" data-help-name="eelectron-knxip-status">
+  <p>Mirrors the underlying KNX/IP tunnel's lifecycle. Emits a message on every
+  state change (and optionally on a fixed cadence), and surfaces queue depth +
+  last error in the node's status indicator.</p>
+
+  <h3>Output</h3>
+  <p><code>msg.payload</code> is one of <code>'disconnected'</code>,
+  <code>'connecting'</code>, <code>'connected'</code>, <code>'disconnecting'</code>.</p>
+  <p><code>msg.topic = 'tunnel-state'</code>.</p>
+  <p><code>msg.knx</code> carries:</p>
+  <ul>
+    <li><code>state</code> — same as <code>msg.payload</code></li>
+    <li><code>queueDepth</code> — number of pending sends in the tunnel's send queue</li>
+    <li><code>assignedAddress</code> — individual address the gateway assigned to us, or <code>null</code></li>
+    <li><code>lastError</code> — most recent <code>warning</code> / <code>error</code> from the tunnel
+      (<code>{ message, at, level }</code>), or <code>null</code>. Cleared automatically on a clean reconnect.</li>
+  </ul>
+
+  <h3>Status badge</h3>
+  <p>Shows <code>state · queue=N · !lastError</code> when relevant. Yellow during
+  connecting/disconnecting, green when connected, red when disconnected.</p>
+
+  <h3>Cyclic emit (ms)</h3>
+  <p>When set to a positive number the node re-emits the current state on that
+  interval in addition to on-change events. Leave at <code>0</code> to disable.</p>
+</script>

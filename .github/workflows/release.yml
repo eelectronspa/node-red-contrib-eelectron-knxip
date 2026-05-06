@@ -1,0 +1,62 @@
+name: Release
+
+# Triggered when a tag of the form v1.2.3 is pushed.
+# Builds the package, packs the tarball, and attaches it to a GitHub Release.
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: write   # required to create the release and upload assets
+
+jobs:
+  release:
+    name: Build and publish release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install
+        run: npm ci
+
+      - name: Verify tag matches package.json
+        run: |
+          PKG_VERSION=$(node -p "require('./package.json').version")
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          if [ "$PKG_VERSION" != "$TAG_VERSION" ]; then
+            echo "::error::Tag '$TAG_VERSION' does not match package.json version '$PKG_VERSION'."
+            echo "::error::Bump package.json before tagging, or fix the tag."
+            exit 1
+          fi
+          echo "Tag and package.json agree on version $PKG_VERSION"
+
+      - name: Test
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
+      - name: Pack tarball
+        id: pack
+        run: |
+          OUT=$(npm pack --json | node -e "const a=JSON.parse(require('fs').readFileSync(0,'utf8')); console.log(a[0].filename)")
+          echo "tgz=$OUT" >> "$GITHUB_OUTPUT"
+          ls -la "$OUT"
+
+      - name: Create release and upload tarball
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ steps.pack.outputs.tgz }}
+          # Release body comes from the annotated tag message — write it via
+          # `git tag -a vX.Y.Z -m "release notes here"`. Set to true if you
+          # ever want GitHub's auto-generated commit changelog instead.
+          generate_release_notes: false
+          draft: false
+          prerelease: false

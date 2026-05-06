@@ -1,0 +1,85 @@
+[
+  {
+    "id": "ex06-tab",
+    "type": "tab",
+    "label": "KNX/IP — handle untranslated (output 2)",
+    "disabled": false,
+    "info": "Pattern for handling messages the ETS translator can't decode automatically — e.g. group addresses missing a DPT, or DPTs not in our codec library yet.\n\nOutput 1 of the *ets* node carries decoded values. Output 2 carries everything that fell through, with `msg.etsReason` describing why. Use a function node on output 2 to do custom decoding (lookup tables, JSON config, manual codec).\n\n**Setup**: configure tunnel + ETS as usual. The function node has a stub showing how to dispatch by `msg.etsReason` or by `msg.topic`."
+  },
+  {
+    "id": "ex06-comment",
+    "type": "comment",
+    "z": "ex06-tab",
+    "name": "Custom decoder for things the ETS map can't translate",
+    "info": "",
+    "x": 280,
+    "y": 60,
+    "wires": []
+  },
+  {
+    "id": "ex06-listener",
+    "type": "eelectron-knxip-listener",
+    "z": "ex06-tab",
+    "name": "",
+    "config": "",
+    "groupAddresses": "",
+    "dpt": "",
+    "x": 160,
+    "y": 160,
+    "wires": [["ex06-ets"]]
+  },
+  {
+    "id": "ex06-ets",
+    "type": "eelectron-knxip-ets",
+    "z": "ex06-tab",
+    "name": "auto",
+    "config": "",
+    "mode": "auto",
+    "x": 340,
+    "y": 160,
+    "wires": [["ex06-decoded"], ["ex06-fn"]]
+  },
+  {
+    "id": "ex06-decoded",
+    "type": "debug",
+    "z": "ex06-tab",
+    "name": "decoded",
+    "active": true,
+    "tosidebar": true,
+    "console": false,
+    "complete": "true",
+    "targetType": "full",
+    "x": 540,
+    "y": 120,
+    "wires": []
+  },
+  {
+    "id": "ex06-fn",
+    "type": "function",
+    "z": "ex06-tab",
+    "name": "custom decode",
+    "func": "// msg.etsReason explains why the translator couldn't handle it.\n// msg.topic is the group address. msg.payload is the original.\n//\n// Example: hand-decode one specific GA whose DPT isn't in the codec library.\nif (msg.topic === '1/9/9' && msg.payload && msg.payload.kind === 'bytes') {\n    // Example custom format: two bytes representing a counter\n    const buf = msg.payload.value;\n    msg.payload = (buf[0] << 8) | buf[1];\n    msg.dpt = 'custom-counter';\n    return msg;\n}\n// Pass everything else along untouched\nreturn msg;\n",
+    "outputs": 1,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 540,
+    "y": 200,
+    "wires": [["ex06-fn-debug"]]
+  },
+  {
+    "id": "ex06-fn-debug",
+    "type": "debug",
+    "z": "ex06-tab",
+    "name": "custom-decoded",
+    "active": true,
+    "tosidebar": true,
+    "console": false,
+    "complete": "true",
+    "targetType": "full",
+    "x": 740,
+    "y": 200,
+    "wires": []
+  }
+]

@@ -1,0 +1,44 @@
+[
+  {
+    "id": "ex01-tab",
+    "type": "tab",
+    "label": "KNX/IP — tunnel status",
+    "disabled": false,
+    "info": "Watch the tunnel connection state.\n\n**Setup**: open the *status* node and pick your *eelectron-knxip-config* (KNX/IP gateway) from the *Tunnel* dropdown. Deploy.\n\nYou should see a message every time the tunnel connects, disconnects, or reconnects."
+  },
+  {
+    "id": "ex01-comment",
+    "type": "comment",
+    "z": "ex01-tab",
+    "name": "Pick your KNX/IP gateway in the status node →",
+    "info": "",
+    "x": 230,
+    "y": 60,
+    "wires": []
+  },
+  {
+    "id": "ex01-status",
+    "type": "eelectron-knxip-status",
+    "z": "ex01-tab",
+    "name": "",
+    "config": "",
+    "cyclicIntervalMs": 0,
+    "x": 200,
+    "y": 140,
+    "wires": [["ex01-debug"]]
+  },
+  {
+    "id": "ex01-debug",
+    "type": "debug",
+    "z": "ex01-tab",
+    "name": "tunnel state",
+    "active": true,
+    "tosidebar": true,
+    "console": false,
+    "complete": "true",
+    "targetType": "full",
+    "x": 430,
+    "y": 140,
+    "wires": []
+  }
+]

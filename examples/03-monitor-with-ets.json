@@ -1,0 +1,70 @@
+[
+  {
+    "id": "ex03-tab",
+    "type": "tab",
+    "label": "KNX/IP — decoded bus monitor (ETS)",
+    "disabled": false,
+    "info": "Listen to the bus and decode values automatically using the ETS project map.\n\n**Setup**:\n1. Configure an *eelectron-knxip-ets-config* and load your ETS group-address CSV.\n2. Open the *listener* and pick your tunnel config.\n3. Open the *ets* node and pick the ETS config; leave mode = `auto`.\n4. Deploy and trigger a write on the bus.\n\nMessages on output 1 carry the decoded value, with `msg.dpt` and `msg.gaName` for context. Output 2 surfaces anything that couldn't be translated (unknown GA, unknown DPT) with a `msg.etsReason`."
+  },
+  {
+    "id": "ex03-comment",
+    "type": "comment",
+    "z": "ex03-tab",
+    "name": "1) Tunnel config + 2) ETS config + 3) listener GAs",
+    "info": "",
+    "x": 270,
+    "y": 60,
+    "wires": []
+  },
+  {
+    "id": "ex03-listener",
+    "type": "eelectron-knxip-listener",
+    "z": "ex03-tab",
+    "name": "",
+    "config": "",
+    "groupAddresses": "",
+    "dpt": "",
+    "x": 160,
+    "y": 140,
+    "wires": [["ex03-ets"]]
+  },
+  {
+    "id": "ex03-ets",
+    "type": "eelectron-knxip-ets",
+    "z": "ex03-tab",
+    "name": "",
+    "config": "",
+    "mode": "auto",
+    "x": 360,
+    "y": 140,
+    "wires": [["ex03-debug-ok"], ["ex03-debug-raw"]]
+  },
+  {
+    "id": "ex03-debug-ok",
+    "type": "debug",
+    "z": "ex03-tab",
+    "name": "decoded",
+    "active": true,
+    "tosidebar": true,
+    "console": false,
+    "complete": "true",
+    "targetType": "full",
+    "x": 560,
+    "y": 100,
+    "wires": []
+  },
+  {
+    "id": "ex03-debug-raw",
+    "type": "debug",
+    "z": "ex03-tab",
+    "name": "untranslated (raw)",
+    "active": true,
+    "tosidebar": true,
+    "console": false,
+    "complete": "true",
+    "targetType": "full",
+    "x": 580,
+    "y": 180,
+    "wires": []
+  }
+]

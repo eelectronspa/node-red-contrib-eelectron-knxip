@@ -1,0 +1,53 @@
+<script type="text/javascript">
+  RED.nodes.registerType('eelectron-knxip-ets', {
+    category: 'eelectron-knxip',
+    color: '#9CC78B',
+    defaults: {
+      name: { value: '' },
+      config: { value: '', type: 'eelectron-knxip-ets-config', required: true },
+      mode: { value: 'auto' },
+    },
+    inputs: 1,
+    outputs: 2,
+    outputLabels: ['translated', 'raw passthrough'],
+    icon: 'KNX_logo.svg',
+    paletteLabel: 'ets',
+    label: function () {
+      return this.name || 'ets ' + (this.mode || 'auto');
+    },
+  });
+</script>
+
+<script type="text/html" data-template-name="eelectron-knxip-ets">
+  <div class="form-row">
+    <label for="node-input-name"><i class="fa fa-tag"></i> Name</label>
+    <input type="text" id="node-input-name" />
+  </div>
+  <div class="form-row">
+    <label for="node-input-config"><i class="fa fa-cog"></i> ETS project</label>
+    <input type="text" id="node-input-config" />
+  </div>
+  <div class="form-row">
+    <label for="node-input-mode"><i class="fa fa-exchange"></i> Mode</label>
+    <select id="node-input-mode">
+      <option value="auto">Auto (detect by payload shape)</option>
+      <option value="decode">Decode (APDU → value)</option>
+      <option value="encode">Encode (value → APDU)</option>
+    </select>
+  </div>
+</script>
+
+<script type="text/html" data-help-name="eelectron-knxip-ets">
+  <p>Looks up <code>msg.topic</code> (a group address) in the referenced ETS project and applies the matching DPT codec.</p>
+  <p><b>Modes:</b></p>
+  <ul>
+    <li><b>Auto</b> — if <code>msg.payload</code> looks like an APDU value (<code>{kind:'small'|'bytes'}</code>) the node decodes; otherwise encodes.</li>
+    <li><b>Decode</b> — always decode (place between <code>knxip listener</code> and downstream logic).</li>
+    <li><b>Encode</b> — always encode (place between <code>inject</code> and <code>knxip writer</code>).</li>
+  </ul>
+  <p><b>Two outputs:</b></p>
+  <ol>
+    <li><b>Translated</b> — successful decode/encode. <code>msg.payload</code> is the decoded value or encoded APDU. <code>msg.dpt</code> and <code>msg.gaName</code> are added for visibility.</li>
+    <li><b>Raw passthrough</b> — messages the node could not translate (unknown GA, unknown DPT, codec error). The original <code>msg</code> is forwarded with <code>msg.etsReason</code> describing why. Attach a function node here for custom parsing.</li>
+  </ol>
+</script>

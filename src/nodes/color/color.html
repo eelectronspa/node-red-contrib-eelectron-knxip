@@ -1,0 +1,54 @@
+<script type="text/javascript">
+  RED.nodes.registerType('eelectron-knxip-color', {
+    category: 'eelectron-knxip',
+    color: '#9CC78B',
+    defaults: {
+      name: { value: '' },
+      groupAddress: { value: '' },
+      mode: { value: 'rgb' },
+    },
+    inputs: 1,
+    outputs: 1,
+    icon: 'KNX_logo.svg',
+    paletteLabel: 'color',
+    label: function () {
+      return this.name || 'knx color';
+    },
+  });
+</script>
+
+<script type="text/html" data-template-name="eelectron-knxip-color">
+  <div class="form-row">
+    <label for="node-input-name"><i class="fa fa-tag"></i> Name</label>
+    <input type="text" id="node-input-name" />
+  </div>
+  <div class="form-row">
+    <label for="node-input-groupAddress"><i class="fa fa-tag"></i> Default GA</label>
+    <input type="text" id="node-input-groupAddress" placeholder="e.g. 5/2/1 (override with msg.topic)" />
+  </div>
+  <div class="form-row">
+    <label for="node-input-mode"><i class="fa fa-cog"></i> Mode</label>
+    <select id="node-input-mode">
+      <option value="rgb">RGB (DPT 232.600 — 3 bytes)</option>
+      <option value="rgbw">RGBW (DPT 251.600 — 6 bytes incl. white channel)</option>
+    </select>
+  </div>
+</script>
+
+<script type="text/html" data-help-name="eelectron-knxip-color">
+  <p>Encodes a colour into the right KNX DPT and forwards <code>msg.payload</code>
+  as an APDU value ready for a <code>knxip writer</code>.</p>
+
+  <h3>Accepted input shapes</h3>
+  <ul>
+    <li>Hex string: <code>"#ff8040"</code> (RGB) or <code>"#ff8040c0"</code> (RGBW).</li>
+    <li>Object: <code>{ red, green, blue, white? }</code> or <code>{ r, g, b, w? }</code>, channels 0..255.</li>
+    <li>CSS function: <code>"rgb(255, 128, 64)"</code> or <code>"rgba(255, 128, 64, 192)"</code>.</li>
+  </ul>
+
+  <h3>Output</h3>
+  <p><code>msg.payload</code> becomes the APDU value, <code>msg.dpt</code> is set
+  to <code>232.600</code> or <code>251.600</code> depending on Mode, and
+  <code>msg.topic</code> falls back to the configured Default GA when the input
+  doesn't carry one.</p>
+</script>

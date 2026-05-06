@@ -1,0 +1,127 @@
+[
+  {
+    "id": "ex05-tab",
+    "type": "tab",
+    "label": "KNX/IP — dimmer control (DPT5 / DPT3)",
+    "disabled": false,
+    "info": "Drive a dimmer either by absolute percent (DPT 5.001) or step-control (DPT 3.007).\n\n**Setup**:\n1. Tunnel + ETS config as in the other examples.\n2. Set `msg.topic` on each inject to the appropriate GA.\n3. Deploy.\n\n- The percent inject sends a number (0-100); ETS finds DPT `5.001` and encodes a 0-255 byte.\n- The step-up/step-down injects send objects of shape `{control, stepCode}`; the ETS map should pin the GA to DPT `3.007` (control_dimming).\n- Read-back: the third row reads the current dim level via a GroupValueRead."
+  },
+  {
+    "id": "ex05-comment",
+    "type": "comment",
+    "z": "ex05-tab",
+    "name": "Adjust msg.topic on each inject to your dimmer GAs",
+    "info": "",
+    "x": 270,
+    "y": 60,
+    "wires": []
+  },
+  {
+    "id": "ex05-pct-50",
+    "type": "inject",
+    "z": "ex05-tab",
+    "name": "50%",
+    "props": [{ "p": "payload" }, { "p": "topic", "vt": "str" }],
+    "repeat": "",
+    "topic": "1/2/1",
+    "payload": "50",
+    "payloadType": "num",
+    "x": 130,
+    "y": 120,
+    "wires": [["ex05-ets-encode"]]
+  },
+  {
+    "id": "ex05-pct-100",
+    "type": "inject",
+    "z": "ex05-tab",
+    "name": "100%",
+    "props": [{ "p": "payload" }, { "p": "topic", "vt": "str" }],
+    "repeat": "",
+    "topic": "1/2/1",
+    "payload": "100",
+    "payloadType": "num",
+    "x": 130,
+    "y": 170,
+    "wires": [["ex05-ets-encode"]]
+  },
+  {
+    "id": "ex05-step-up",
+    "type": "inject",
+    "z": "ex05-tab",
+    "name": "step + 25%",
+    "props": [{ "p": "payload" }, { "p": "topic", "vt": "str" }],
+    "repeat": "",
+    "topic": "1/2/2",
+    "payload": "{\"control\":true,\"stepCode\":2}",
+    "payloadType": "json",
+    "x": 150,
+    "y": 240,
+    "wires": [["ex05-ets-encode"]]
+  },
+  {
+    "id": "ex05-step-down",
+    "type": "inject",
+    "z": "ex05-tab",
+    "name": "step − 25%",
+    "props": [{ "p": "payload" }, { "p": "topic", "vt": "str" }],
+    "repeat": "",
+    "topic": "1/2/2",
+    "payload": "{\"control\":false,\"stepCode\":2}",
+    "payloadType": "json",
+    "x": 150,
+    "y": 290,
+    "wires": [["ex05-ets-encode"]]
+  },
+  {
+    "id": "ex05-read",
+    "type": "inject",
+    "z": "ex05-tab",
+    "name": "read level",
+    "props": [
+      { "p": "topic", "vt": "str" },
+      { "p": "read", "v": "true", "vt": "bool" }
+    ],
+    "repeat": "",
+    "topic": "1/2/1",
+    "x": 150,
+    "y": 360,
+    "wires": [["ex05-writer"]]
+  },
+  {
+    "id": "ex05-ets-encode",
+    "type": "eelectron-knxip-ets",
+    "z": "ex05-tab",
+    "name": "encode",
+    "config": "",
+    "mode": "encode",
+    "x": 360,
+    "y": 200,
+    "wires": [["ex05-writer"], ["ex05-untranslated"]]
+  },
+  {
+    "id": "ex05-writer",
+    "type": "eelectron-knxip-writer",
+    "z": "ex05-tab",
+    "name": "",
+    "config": "",
+    "groupAddress": "",
+    "dpt": "",
+    "x": 560,
+    "y": 250,
+    "wires": []
+  },
+  {
+    "id": "ex05-untranslated",
+    "type": "debug",
+    "z": "ex05-tab",
+    "name": "untranslated",
+    "active": true,
+    "tosidebar": true,
+    "console": false,
+    "complete": "true",
+    "targetType": "full",
+    "x": 560,
+    "y": 170,
+    "wires": []
+  }
+]

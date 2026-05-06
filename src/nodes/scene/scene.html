@@ -1,0 +1,55 @@
+<script type="text/javascript">
+  RED.nodes.registerType('eelectron-knxip-scene', {
+    category: 'eelectron-knxip',
+    color: '#9CC78B',
+    defaults: {
+      name: { value: '' },
+      groupAddress: { value: '' },
+      mode: { value: 'auto' },
+    },
+    inputs: 1,
+    outputs: 1,
+    icon: 'KNX_logo.svg',
+    paletteLabel: 'scene',
+    label: function () {
+      return this.name || 'knx scene';
+    },
+  });
+</script>
+
+<script type="text/html" data-template-name="eelectron-knxip-scene">
+  <div class="form-row">
+    <label for="node-input-name"><i class="fa fa-tag"></i> Name</label>
+    <input type="text" id="node-input-name" />
+  </div>
+  <div class="form-row">
+    <label for="node-input-groupAddress"><i class="fa fa-tag"></i> Default GA</label>
+    <input type="text" id="node-input-groupAddress" placeholder="e.g. 5/1/1 (override with msg.topic)" />
+  </div>
+  <div class="form-row">
+    <label for="node-input-mode"><i class="fa fa-cog"></i> Output DPT</label>
+    <select id="node-input-mode">
+      <option value="auto">Auto (17.001 for plain numbers, 18.001 with control)</option>
+      <option value="17.001">17.001 — scene number</option>
+      <option value="18.001">18.001 — scene control (activate/learn)</option>
+    </select>
+  </div>
+</script>
+
+<script type="text/html" data-help-name="eelectron-knxip-scene">
+  <p>Encodes a KNX scene message and forwards <code>msg.payload</code> as an APDU value
+  ready for a <code>knxip writer</code>.</p>
+
+  <h3>Input shapes</h3>
+  <ul>
+    <li><code>msg.payload = 5</code> — scene number (0..63). Auto mode picks DPT 17.001.</li>
+    <li><code>msg.payload = { sceneNumber: 5 }</code> — same as above.</li>
+    <li><code>msg.payload = { sceneNumber: 5, control: 'activate' }</code> — DPT 18.001.</li>
+    <li><code>msg.payload = { sceneNumber: 5, control: 'learn' }</code> — DPT 18.001 in learn mode.</li>
+    <li><code>msg.payload = { sceneNumber: 5, learn: true }</code> — shorthand for the learn case.</li>
+  </ul>
+
+  <h3>Output</h3>
+  <p><code>msg.payload</code> becomes the APDU value, <code>msg.dpt</code> is set, and
+  <code>msg.topic</code> falls back to the configured Default GA when the input doesn't carry one.</p>
+</script>

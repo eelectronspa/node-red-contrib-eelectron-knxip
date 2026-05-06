@@ -1,0 +1,94 @@
+[
+  {
+    "id": "ex04-tab",
+    "type": "tab",
+    "label": "KNX/IP — switch control (DPT1)",
+    "disabled": false,
+    "info": "Send `true`/`false` to a 1-bit group address using the ETS map for automatic DPT lookup.\n\n**Setup**:\n1. Configure tunnel config + ETS config (see *monitor with ETS* example).\n2. Edit each *inject* node and set `msg.topic` to the GA you want to switch (e.g. `1/1/1`).\n3. Open the *writer* and pick your tunnel.\n4. Deploy.\n\nClick the inject buttons to send the value. The ETS translator looks up `msg.topic` in the project, finds the DPT (e.g. `1.001`), and encodes the boolean into the right APDU."
+  },
+  {
+    "id": "ex04-comment",
+    "type": "comment",
+    "z": "ex04-tab",
+    "name": "Set msg.topic on each inject to your switch GA",
+    "info": "",
+    "x": 240,
+    "y": 60,
+    "wires": []
+  },
+  {
+    "id": "ex04-on",
+    "type": "inject",
+    "z": "ex04-tab",
+    "name": "ON",
+    "props": [
+      { "p": "payload" },
+      { "p": "topic", "vt": "str" }
+    ],
+    "repeat": "",
+    "crontab": "",
+    "once": false,
+    "topic": "1/1/1",
+    "payload": "true",
+    "payloadType": "bool",
+    "x": 130,
+    "y": 120,
+    "wires": [["ex04-ets"]]
+  },
+  {
+    "id": "ex04-off",
+    "type": "inject",
+    "z": "ex04-tab",
+    "name": "OFF",
+    "props": [
+      { "p": "payload" },
+      { "p": "topic", "vt": "str" }
+    ],
+    "repeat": "",
+    "crontab": "",
+    "once": false,
+    "topic": "1/1/1",
+    "payload": "false",
+    "payloadType": "bool",
+    "x": 130,
+    "y": 180,
+    "wires": [["ex04-ets"]]
+  },
+  {
+    "id": "ex04-ets",
+    "type": "eelectron-knxip-ets",
+    "z": "ex04-tab",
+    "name": "encode via ETS",
+    "config": "",
+    "mode": "encode",
+    "x": 340,
+    "y": 150,
+    "wires": [["ex04-writer"], ["ex04-untranslated"]]
+  },
+  {
+    "id": "ex04-writer",
+    "type": "eelectron-knxip-writer",
+    "z": "ex04-tab",
+    "name": "",
+    "config": "",
+    "groupAddress": "",
+    "dpt": "",
+    "x": 560,
+    "y": 130,
+    "wires": []
+  },
+  {
+    "id": "ex04-untranslated",
+    "type": "debug",
+    "z": "ex04-tab",
+    "name": "untranslated",
+    "active": true,
+    "tosidebar": true,
+    "console": false,
+    "complete": "true",
+    "targetType": "full",
+    "x": 560,
+    "y": 200,
+    "wires": []
+  }
+]

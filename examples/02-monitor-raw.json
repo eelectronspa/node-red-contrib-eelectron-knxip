@@ -1,0 +1,45 @@
+[
+  {
+    "id": "ex02-tab",
+    "type": "tab",
+    "label": "KNX/IP — raw bus monitor",
+    "disabled": false,
+    "info": "Listen to one or more group addresses and emit raw APDU values.\n\n**Setup**:\n1. Open the *listener* node and pick your *eelectron-knxip-config*.\n2. Add the group addresses you want to monitor, one per line (e.g. `1/1/28`).\n3. Leave *DPT* blank to see raw APDU shapes.\n4. Deploy and trigger a write on the bus.\n\nFor decoded values use the **monitor with ETS** example instead."
+  },
+  {
+    "id": "ex02-comment",
+    "type": "comment",
+    "z": "ex02-tab",
+    "name": "Configure listener with your tunnel + GAs →",
+    "info": "",
+    "x": 230,
+    "y": 60,
+    "wires": []
+  },
+  {
+    "id": "ex02-listener",
+    "type": "eelectron-knxip-listener",
+    "z": "ex02-tab",
+    "name": "",
+    "config": "",
+    "groupAddresses": "",
+    "dpt": "",
+    "x": 200,
+    "y": 140,
+    "wires": [["ex02-debug"]]
+  },
+  {
+    "id": "ex02-debug",
+    "type": "debug",
+    "z": "ex02-tab",
+    "name": "raw bus messages",
+    "active": true,
+    "tosidebar": true,
+    "console": false,
+    "complete": "true",
+    "targetType": "full",
+    "x": 460,
+    "y": 140,
+    "wires": []
+  }
+]

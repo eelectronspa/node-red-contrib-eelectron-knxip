@@ -1,0 +1,142 @@
+<script type="text/javascript">
+  RED.nodes.registerType('eelectron-knxip-listener', {
+    category: 'eelectron-knxip',
+    color: '#9CC78B',
+    defaults: {
+      name: { value: '' },
+      config: { value: '', type: 'eelectron-knxip-config', required: true },
+      etsConfig: { value: '', type: 'eelectron-knxip-ets-config', required: false },
+      groupAddresses: { value: '' },
+      subscribeAllFromEts: { value: false },
+      dpt: { value: '' },
+      readOnConnect: { value: false },
+      readDelayMs: { value: 100, validate: RED.validators.number(true) },
+      readMaxCount: { value: 200, validate: RED.validators.number(true) },
+    },
+    inputs: 0,
+    outputs: 1,
+    icon: 'KNX_logo.svg',
+    paletteLabel: 'listener',
+    align: 'left',
+    label: function () {
+      return this.name || 'knx listener';
+    },
+    oneditprepare: function () {
+      // DPT autocomplete (sourced from the codec registry)
+      var $dpt = $('#node-input-dpt');
+      var dptCache = null;
+      function loadDpts(cb) {
+        if (dptCache) { cb(dptCache); return; }
+        $.getJSON('eelectron-knxip/dpts', function (list) {
+          dptCache = list || [];
+          cb(dptCache);
+        }).fail(function () { cb([]); });
+      }
+      $dpt.autocomplete({
+        minLength: 0,
+        delay: 100,
+        source: function (req, resp) {
+          loadDpts(function (list) {
+            var term = (req.term || '').toLowerCase();
+            var matches = list
+              .filter(function (d) {
+                return (
+                  d.id.indexOf(term) !== -1 ||
+                  (d.name || '').toLowerCase().indexOf(term) !== -1
+                );
+              })
+              .slice(0, 50)
+              .map(function (d) {
+                return {
+                  label: d.id + ' — ' + d.name + (d.unit ? ' (' + d.unit + ')' : ''),
+                  value: d.id,
+                };
+              });
+            resp(matches);
+          });
+        },
+      });
+      $dpt.on('focus', function () {
+        $dpt.autocomplete('search', $dpt.val() || '');
+      });
+    },
+  });
+</script>
+
+<script type="text/html" data-template-name="eelectron-knxip-listener">
+  <div class="form-row">
+    <label for="node-input-name"><i class="fa fa-tag"></i> Name</label>
+    <input type="text" id="node-input-name" />
+  </div>
+  <div class="form-row">
+    <label for="node-input-config"><i class="fa fa-cog"></i> Tunnel</label>
+    <input type="text" id="node-input-config" />
+  </div>
+  <div class="form-row">
+    <label for="node-input-etsConfig"><i class="fa fa-book"></i> ETS project</label>
+    <input type="text" id="node-input-etsConfig" />
+  </div>
+  <div class="form-row">
+    <label for="node-input-groupAddresses"><i class="fa fa-list"></i> Group addresses</label>
+    <textarea id="node-input-groupAddresses" rows="4"
+      placeholder="One per line. Wildcards in long form: 1/2/*  or  1/*/3  or  */*/*"></textarea>
+  </div>
+  <div class="form-row">
+    <label for="node-input-subscribeAllFromEts"><i class="fa fa-globe"></i> All from ETS</label>
+    <input type="checkbox" id="node-input-subscribeAllFromEts" style="width:auto" />
+    <span style="color:#888;margin-left:8px;">Subscribe to every GA in the ETS map (when GA list above is empty).</span>
+  </div>
+  <div class="form-row">
+    <label for="node-input-dpt"><i class="fa fa-cog"></i> DPT (optional)</label>
+    <input type="text" id="node-input-dpt"
+      placeholder="e.g. 1.001 — blank uses ETS-mapped DPT, then raw APDU" />
+  </div>
+  <hr/>
+  <div class="form-row">
+    <label for="node-input-readOnConnect"><i class="fa fa-bolt"></i> Read on connect</label>
+    <input type="checkbox" id="node-input-readOnConnect" style="width:auto" />
+    <span style="color:#888;margin-left:8px;">Fire GroupValueRead for each subscribed GA after the tunnel comes up.</span>
+  </div>
+  <div class="form-row">
+    <label for="node-input-readDelayMs"><i class="fa fa-clock-o"></i> Read delay (ms)</label>
+    <input type="number" id="node-input-readDelayMs" min="0" />
+  </div>
+  <div class="form-row">
+    <label for="node-input-readMaxCount"><i class="fa fa-hashtag"></i> Read max count</label>
+    <input type="number" id="node-input-readMaxCount" min="0" />
+  </div>
+</script>
+
+<script type="text/html" data-help-name="eelectron-knxip-listener">
+  <p>Subscribes to one or more KNX group addresses and emits a message for each
+  matching <code>GroupValueWrite</code> or <code>GroupValueResponse</code>.</p>
+
+  <h3>Group address selection</h3>
+  <ul>
+    <li>Enter exact GAs (one per line): <code>1/2/3</code></li>
+    <li>Long-form wildcard patterns: <code>1/2/*</code>, <code>1/*/3</code>, <code>*/*/*</code></li>
+    <li>Tick <b>All from ETS</b> with the GA list empty to subscribe to every GA in the bound ETS project.</li>
+  </ul>
+
+  <h3>DPT decoding</h3>
+  <p>If a DPT is configured here, <code>msg.payload</code> is decoded with that codec.
+  Otherwise, if an ETS project is bound, the listener uses the per-GA DPT from the project.
+  Falls back to the raw APDU descriptor.</p>
+
+  <h3>Read on connect</h3>
+  <p>When ticked, the listener fires a <code>GroupValueRead</code> for each subscribed
+  exact GA shortly after the tunnel becomes connected (and again on reconnect).
+  Use <b>Read delay</b> to space out reads, and <b>Read max count</b> as a safety cap
+  for projects with many GAs.</p>
+
+  <h3>Output</h3>
+  <p>For each matching telegram the listener emits a message with:</p>
+  <ul>
+    <li><code>msg.payload</code> — decoded value (when a DPT was applied) or the raw APDU descriptor.</li>
+    <li><code>msg.topic</code> — destination GA in long form (e.g. <code>1/2/3</code>).</li>
+    <li><code>msg.dpt</code> — the codec id used for decoding, when applicable.</li>
+    <li><code>msg.gaName</code> — friendly name from the ETS map, when bound.</li>
+    <li><code>msg.knx</code> — <code>{ source, destination, apci, raw, isResponse, priority }</code>
+      with <code>priority</code> as a string (<code>'system' | 'normal' | 'urgent' | 'low'</code>).</li>
+  </ul>
+</script>

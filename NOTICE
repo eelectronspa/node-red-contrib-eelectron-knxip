@@ -1,0 +1,12 @@
+node-red-contrib-eelectron-knxip
+Copyright 2026 Jamel Nacef <jamel.nacef@eelectron.com>
+
+This product is licensed under the Apache License, Version 2.0 (see the
+accompanying LICENSE file).
+
+Trademarks
+----------
+"eelectron" is a brand of the eelectron group. The Apache License does not
+grant rights to use this name, the package name "node-red-contrib-eelectron-
+knxip", or related logos. Forks intended for redistribution must use a
+different name and remove the upstream branding.
