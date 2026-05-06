@@ -1,0 +1,85 @@
+[
+  {
+    "id": "ex07-tab",
+    "type": "tab",
+    "label": "KNX/IP — writer with ETS auto-encode",
+    "disabled": false,
+    "info": "Show how the writer auto-resolves the DPT from the bound ETS project, so you don't need a separate ETS translator in the wire.\n\n**Setup**:\n1. Configure tunnel + ETS configs (if not already done).\n2. Open the *writer* and bind both Tunnel and ETS project; leave DPT blank.\n3. Set `msg.topic` on each inject to a real GA in your project.\n4. Deploy and click the inject buttons.\n\nThe writer looks up the GA in the ETS map, finds the right DPT (1.001, 5.001, etc.) and encodes the payload accordingly. No ETS translator node needed in the wire."
+  },
+  {
+    "id": "ex07-comment",
+    "type": "comment",
+    "z": "ex07-tab",
+    "name": "Writer auto-encodes via ETS — no translator in the wire",
+    "info": "",
+    "x": 270,
+    "y": 60,
+    "wires": []
+  },
+  {
+    "id": "ex07-on",
+    "type": "inject",
+    "z": "ex07-tab",
+    "name": "switch on",
+    "props": [{ "p": "payload" }, { "p": "topic", "vt": "str" }],
+    "topic": "1/1/1",
+    "payload": "true",
+    "payloadType": "bool",
+    "x": 140,
+    "y": 120,
+    "wires": [["ex07-writer"]]
+  },
+  {
+    "id": "ex07-off",
+    "type": "inject",
+    "z": "ex07-tab",
+    "name": "switch off",
+    "props": [{ "p": "payload" }, { "p": "topic", "vt": "str" }],
+    "topic": "1/1/1",
+    "payload": "false",
+    "payloadType": "bool",
+    "x": 140,
+    "y": 170,
+    "wires": [["ex07-writer"]]
+  },
+  {
+    "id": "ex07-pct",
+    "type": "inject",
+    "z": "ex07-tab",
+    "name": "dim 50%",
+    "props": [{ "p": "payload" }, { "p": "topic", "vt": "str" }],
+    "topic": "1/2/1",
+    "payload": "50",
+    "payloadType": "num",
+    "x": 140,
+    "y": 220,
+    "wires": [["ex07-writer"]]
+  },
+  {
+    "id": "ex07-temp",
+    "type": "inject",
+    "z": "ex07-tab",
+    "name": "setpoint 21.5°C",
+    "props": [{ "p": "payload" }, { "p": "topic", "vt": "str" }],
+    "topic": "1/3/1",
+    "payload": "21.5",
+    "payloadType": "num",
+    "x": 160,
+    "y": 270,
+    "wires": [["ex07-writer"]]
+  },
+  {
+    "id": "ex07-writer",
+    "type": "eelectron-knxip-writer",
+    "z": "ex07-tab",
+    "name": "writer (ETS-bound)",
+    "config": "",
+    "etsConfig": "",
+    "groupAddress": "",
+    "dpt": "",
+    "dedupeWindowMs": 0,
+    "x": 400,
+    "y": 195,
+    "wires": []
+  }
+]

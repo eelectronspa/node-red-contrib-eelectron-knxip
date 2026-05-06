@@ -71,6 +71,12 @@ After installing, find ready-to-import flows in Node-RED at
 - 04 Switch control (DPT1)
 - 05 Dimmer control (DPT5 / DPT3)
 - 06 Custom decoder for output 2
+- 07 Writer with ETS auto-encode (no translator needed)
+- 08 State store cache (listener → cache → query by GA)
+- 09 Scene control (DPT 17 / 18)
+- 10 Colour control (DPT 232 / 251 — hex / `rgb()` / object)
+- 11 Full project monitor (all GAs from ETS + read-on-connect)
+- 12 Anti-loop dedupe demo
 
 ## Development
 

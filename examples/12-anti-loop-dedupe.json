@@ -1,0 +1,59 @@
+[
+  {
+    "id": "ex12-tab",
+    "type": "tab",
+    "label": "KNX/IP — anti-loop dedupe demo",
+    "disabled": false,
+    "info": "Demonstrates the writer's *Dedupe (ms)* setting that suppresses duplicate writes within a sliding window. Useful for breaking accidental feedback loops between Node-RED and external systems (e.g. Home Assistant + a third-party bridge mirroring back).\n\n**Setup**:\n1. Configure the tunnel.\n2. Open the *writer* and set Dedupe = **500 ms**.\n3. Click the inject button several times quickly: the first write reaches the bus, subsequent identical writes within 500 ms are dropped silently.\n4. Wait > 500 ms, click again, and a fresh write goes through.\n\nThe writer's status badge reads `suppressed N dup` while the guard kicks in."
+  },
+  {
+    "id": "ex12-comment",
+    "type": "comment",
+    "z": "ex12-tab",
+    "name": "Click rapidly: first write goes through, duplicates within 500ms are dropped",
+    "info": "",
+    "x": 330,
+    "y": 60,
+    "wires": []
+  },
+  {
+    "id": "ex12-inj-50",
+    "type": "inject",
+    "z": "ex12-tab",
+    "name": "set 50%",
+    "props": [{ "p": "payload" }, { "p": "topic", "vt": "str" }],
+    "topic": "1/2/1",
+    "payload": "50",
+    "payloadType": "num",
+    "x": 140,
+    "y": 140,
+    "wires": [["ex12-writer"]]
+  },
+  {
+    "id": "ex12-inj-80",
+    "type": "inject",
+    "z": "ex12-tab",
+    "name": "set 80% (different value, not deduped)",
+    "props": [{ "p": "payload" }, { "p": "topic", "vt": "str" }],
+    "topic": "1/2/1",
+    "payload": "80",
+    "payloadType": "num",
+    "x": 240,
+    "y": 200,
+    "wires": [["ex12-writer"]]
+  },
+  {
+    "id": "ex12-writer",
+    "type": "eelectron-knxip-writer",
+    "z": "ex12-tab",
+    "name": "writer · dedupe 500ms",
+    "config": "",
+    "etsConfig": "",
+    "groupAddress": "",
+    "dpt": "5.001",
+    "dedupeWindowMs": 500,
+    "x": 540,
+    "y": 170,
+    "wires": []
+  }
+]

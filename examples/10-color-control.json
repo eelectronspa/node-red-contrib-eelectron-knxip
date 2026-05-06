@@ -1,0 +1,92 @@
+[
+  {
+    "id": "ex10-tab",
+    "type": "tab",
+    "label": "KNX/IP — colour control (DPT 232 / 251)",
+    "disabled": false,
+    "info": "Drive RGB or RGBW colour actuators via the *color* node.\n\n**Setup**:\n1. Configure the tunnel.\n2. Open the *color* node and set the Default GA + Mode (RGB = DPT 232.600, RGBW = DPT 251.600).\n3. Pick any input format the node supports:\n   - Hex strings: `#ff8040` (RGB) or `#ff8040c0` (RGBW)\n   - CSS function: `rgb(255,128,64)` / `rgba(...)` for the white channel\n   - Object: `{red, green, blue, white?}` or `{r, g, b, w?}` (channels 0..255)\n\nThe color node encodes to the right DPT and the writer sends to the bus."
+  },
+  {
+    "id": "ex10-comment",
+    "type": "comment",
+    "z": "ex10-tab",
+    "name": "Try a hex string, an rgb() string, or a {red,green,blue} object",
+    "info": "",
+    "x": 290,
+    "y": 60,
+    "wires": []
+  },
+  {
+    "id": "ex10-warm",
+    "type": "inject",
+    "z": "ex10-tab",
+    "name": "warm orange (#ff8040)",
+    "props": [{ "p": "payload" }],
+    "payload": "#ff8040",
+    "payloadType": "str",
+    "x": 180,
+    "y": 120,
+    "wires": [["ex10-color"]]
+  },
+  {
+    "id": "ex10-cyan",
+    "type": "inject",
+    "z": "ex10-tab",
+    "name": "cyan via rgb()",
+    "props": [{ "p": "payload" }],
+    "payload": "rgb(0,200,200)",
+    "payloadType": "str",
+    "x": 160,
+    "y": 170,
+    "wires": [["ex10-color"]]
+  },
+  {
+    "id": "ex10-magenta",
+    "type": "inject",
+    "z": "ex10-tab",
+    "name": "magenta via object",
+    "props": [{ "p": "payload" }],
+    "payload": "{\"red\":200,\"green\":0,\"blue\":200}",
+    "payloadType": "json",
+    "x": 170,
+    "y": 220,
+    "wires": [["ex10-color"]]
+  },
+  {
+    "id": "ex10-off",
+    "type": "inject",
+    "z": "ex10-tab",
+    "name": "off (#000000)",
+    "props": [{ "p": "payload" }],
+    "payload": "#000000",
+    "payloadType": "str",
+    "x": 150,
+    "y": 270,
+    "wires": [["ex10-color"]]
+  },
+  {
+    "id": "ex10-color",
+    "type": "eelectron-knxip-color",
+    "z": "ex10-tab",
+    "name": "color encoder",
+    "groupAddress": "5/2/1",
+    "mode": "rgb",
+    "x": 400,
+    "y": 195,
+    "wires": [["ex10-writer"]]
+  },
+  {
+    "id": "ex10-writer",
+    "type": "eelectron-knxip-writer",
+    "z": "ex10-tab",
+    "name": "",
+    "config": "",
+    "etsConfig": "",
+    "groupAddress": "",
+    "dpt": "",
+    "dedupeWindowMs": 0,
+    "x": 600,
+    "y": 195,
+    "wires": []
+  }
+]

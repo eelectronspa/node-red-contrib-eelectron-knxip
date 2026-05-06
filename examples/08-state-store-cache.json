@@ -1,0 +1,84 @@
+[
+  {
+    "id": "ex08-tab",
+    "type": "tab",
+    "label": "KNX/IP — state store cache",
+    "disabled": false,
+    "info": "Cache the last-known value per group address as inbound telegrams arrive, then query the cache on demand instead of re-reading the bus.\n\n**Setup**:\n1. Configure tunnel + ETS configs.\n2. Bind the listener to the tunnel and ETS project so values arrive decoded.\n3. The listener pipes every incoming telegram into the state store (default `set` action records each one).\n4. The query inject sends `{action:'get', topic:'1/2/3'}` — the store emits the latest cached value, or `null` if the GA hasn't been seen yet.\n5. The list inject dumps the entire cache as an array on `msg.payload`.\n\nGood for dashboards / web UIs that want current values without round-tripping the KNX bus."
+  },
+  {
+    "id": "ex08-comment",
+    "type": "comment",
+    "z": "ex08-tab",
+    "name": "Listener fills the cache; queries fetch values without re-reading the bus",
+    "info": "",
+    "x": 320,
+    "y": 60,
+    "wires": []
+  },
+  {
+    "id": "ex08-listener",
+    "type": "eelectron-knxip-listener",
+    "z": "ex08-tab",
+    "name": "all from ETS",
+    "config": "",
+    "etsConfig": "",
+    "groupAddresses": "",
+    "subscribeAllFromEts": true,
+    "dpt": "",
+    "readOnConnect": false,
+    "readDelayMs": 100,
+    "readMaxCount": 200,
+    "x": 160,
+    "y": 140,
+    "wires": [["ex08-store"]]
+  },
+  {
+    "id": "ex08-query-get",
+    "type": "inject",
+    "z": "ex08-tab",
+    "name": "get 1/2/3",
+    "props": [
+      { "p": "topic", "vt": "str" },
+      { "p": "action", "v": "get", "vt": "str" }
+    ],
+    "topic": "1/2/3",
+    "x": 150,
+    "y": 220,
+    "wires": [["ex08-store"]]
+  },
+  {
+    "id": "ex08-query-list",
+    "type": "inject",
+    "z": "ex08-tab",
+    "name": "list all",
+    "props": [{ "p": "action", "v": "list", "vt": "str" }],
+    "x": 150,
+    "y": 270,
+    "wires": [["ex08-store"]]
+  },
+  {
+    "id": "ex08-store",
+    "type": "eelectron-knxip-state-store",
+    "z": "ex08-tab",
+    "name": "state store",
+    "maxEntries": 0,
+    "x": 400,
+    "y": 200,
+    "wires": [["ex08-debug"]]
+  },
+  {
+    "id": "ex08-debug",
+    "type": "debug",
+    "z": "ex08-tab",
+    "name": "cache result",
+    "active": true,
+    "tosidebar": true,
+    "console": false,
+    "complete": "true",
+    "targetType": "full",
+    "x": 600,
+    "y": 200,
+    "wires": []
+  }
+]

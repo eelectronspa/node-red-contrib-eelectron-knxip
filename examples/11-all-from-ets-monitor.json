@@ -1,0 +1,50 @@
+[
+  {
+    "id": "ex11-tab",
+    "type": "tab",
+    "label": "KNX/IP — full project monitor (all from ETS)",
+    "disabled": false,
+    "info": "Subscribe to every group address in your ETS project and emit decoded values, with no GA list to maintain by hand.\n\n**Setup**:\n1. Configure tunnel + ETS configs.\n2. Open the *listener*, bind both configs, leave the GA list empty, and tick **All from ETS**.\n3. Tick **Read on connect** so the listener fires GroupValueRead for each known GA shortly after the tunnel comes up — the cache populates without waiting for organic traffic. Adjust *Read delay* (ms between reads) and *Read max count* if your project is large.\n4. Deploy.\n\nEvery telegram comes through fully decoded with `msg.dpt` and `msg.gaName` set, so downstream flows can branch on either."
+  },
+  {
+    "id": "ex11-comment",
+    "type": "comment",
+    "z": "ex11-tab",
+    "name": "Tick 'All from ETS' + 'Read on connect' — instant project-wide visibility",
+    "info": "",
+    "x": 320,
+    "y": 60,
+    "wires": []
+  },
+  {
+    "id": "ex11-listener",
+    "type": "eelectron-knxip-listener",
+    "z": "ex11-tab",
+    "name": "all + read-on-connect",
+    "config": "",
+    "etsConfig": "",
+    "groupAddresses": "",
+    "subscribeAllFromEts": true,
+    "dpt": "",
+    "readOnConnect": true,
+    "readDelayMs": 100,
+    "readMaxCount": 500,
+    "x": 200,
+    "y": 140,
+    "wires": [["ex11-debug"]]
+  },
+  {
+    "id": "ex11-debug",
+    "type": "debug",
+    "z": "ex11-tab",
+    "name": "decoded bus",
+    "active": true,
+    "tosidebar": true,
+    "console": false,
+    "complete": "true",
+    "targetType": "full",
+    "x": 470,
+    "y": 140,
+    "wires": []
+  }
+]
