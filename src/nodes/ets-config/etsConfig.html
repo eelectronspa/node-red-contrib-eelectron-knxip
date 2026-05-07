@@ -10,6 +10,18 @@
     label: function () {
       return this.name || 'ETS project';
     },
+    oneditsave: function () {
+      // Diagnostic — confirms what Node-RED is about to commit. If
+      // parsedEntries is 0 length here, the editor's dirty-state tracker
+      // didn't pick up our .val() assignments (most common cause: forgot to
+      // fire a change event after the programmatic assignment).
+      var pe = $('#node-config-input-parsedEntries').val() || '';
+      var cd = $('#node-config-input-csvData').val() || '';
+      console.log(
+        '[knxip] oneditsave: parsedEntries=', pe.length, 'chars · csvData=',
+        cd.length, 'chars',
+      );
+    },
     oneditprepare: function () {
       var $file = $('#ets-config-file');
       var $clear = $('#ets-config-clear');
@@ -45,52 +57,111 @@
         if (msg) $status.text(msg);
       }
 
+      function arrayBufferToBase64(buf) {
+        var bytes = new Uint8Array(buf);
+        var chunk = 0x8000;
+        var parts = [];
+        for (var i = 0; i < bytes.length; i += chunk) {
+          parts.push(String.fromCharCode.apply(null, bytes.subarray(i, i + chunk)));
+        }
+        return btoa(parts.join(''));
+      }
+
+      function applyParseResult(result) {
+        // CRITICAL: trigger 'change' after every .val() assignment so
+        // Node-RED's dirty-state tracker actually saves the new value when
+        // the user clicks Update. Without this, programmatic .val() updates
+        // are invisible to the editor and the dialog "saves" with stale data.
+        $textarea.val('').trigger('change');
+        $entries.val(JSON.stringify(result.groupAddresses || [])).trigger('change');
+        $source.val('knxproj').trigger('change');
+        refreshStatus();
+        var pname = result.projectName ? ' "' + result.projectName + '"' : '';
+        var withDpt = (result.groupAddresses || []).filter(function (e) { return e.dpt; }).length;
+        var msg =
+          'Parsed' + pname + ' — ' +
+          (result.groupAddresses || []).length + ' GAs (' +
+          withDpt + ' with DPT)';
+        if ((result.warnings || []).length) {
+          msg += ' · ' + result.warnings.length + ' warning(s)';
+        }
+        $status.text(msg + ' — click Update to save.');
+      }
+
+      function uploadBinary(arrayBuffer, fallbackToBase64) {
+        var blob = new Blob([arrayBuffer], { type: 'application/octet-stream' });
+        console.log(
+          '[knxip] uploading .knxproj as octet-stream:',
+          arrayBuffer.byteLength,
+          'bytes',
+        );
+        return $.ajax({
+          url: 'eelectron-knxip-ets-config/parse-knxproj',
+          type: 'POST',
+          data: blob,
+          contentType: 'application/octet-stream',
+          processData: false,
+        })
+          .done(function (result) {
+            console.log('[knxip] parse-knxproj OK', result);
+            setBusy(false);
+            applyParseResult(result);
+          })
+          .fail(function (xhr) {
+            console.warn(
+              '[knxip] parse-knxproj failed (octet-stream)',
+              xhr.status,
+              xhr.responseText,
+            );
+            if (fallbackToBase64) {
+              console.log('[knxip] retrying as base64 JSON');
+              var b64 = arrayBufferToBase64(arrayBuffer);
+              $.ajax({
+                url: 'eelectron-knxip-ets-config/parse-knxproj',
+                type: 'POST',
+                data: JSON.stringify({ fileBase64: b64 }),
+                contentType: 'application/json',
+              })
+                .done(function (result) {
+                  console.log('[knxip] parse-knxproj OK (base64)', result);
+                  setBusy(false);
+                  applyParseResult(result);
+                })
+                .fail(function (xhr2) {
+                  console.error(
+                    '[knxip] parse-knxproj failed (base64)',
+                    xhr2.status,
+                    xhr2.responseText,
+                  );
+                  setBusy(false);
+                  var msg = 'Parse failed (HTTP ' + xhr2.status + ')';
+                  if (xhr2.responseJSON && xhr2.responseJSON.error) {
+                    msg += ': ' + xhr2.responseJSON.error;
+                  }
+                  $status.text(msg);
+                });
+            } else {
+              setBusy(false);
+              var msg = 'Parse failed (HTTP ' + xhr.status + ')';
+              if (xhr.responseJSON && xhr.responseJSON.error) {
+                msg += ': ' + xhr.responseJSON.error;
+              }
+              $status.text(msg);
+            }
+          });
+      }
+
       $file.on('change', function (evt) {
         var file = (evt.target.files || [])[0];
         if (!file) return;
         var name = (file.name || '').toLowerCase();
         var isKnxproj = name.endsWith('.knxproj');
+        console.log('[knxip] file selected:', file.name, file.size, 'bytes, knxproj=', isKnxproj);
 
         if (isKnxproj) {
-          // Binary upload — POST to the admin endpoint, which parses on the
-          // server and returns the GA list as JSON. We store that JSON in
-          // node config (much smaller than the raw archive).
-          setBusy(true, 'Parsing .knxproj on the server…');
+          setBusy(true, 'Reading and parsing .knxproj…');
           var fr = new FileReader();
-          fr.onload = function (ev) {
-            $.ajax({
-              url: 'eelectron-knxip-ets-config/parse-knxproj',
-              type: 'POST',
-              data: ev.target.result,
-              contentType: 'application/octet-stream',
-              processData: false,
-            })
-              .done(function (result) {
-                setBusy(false);
-                $textarea.val('');
-                $entries.val(JSON.stringify(result.groupAddresses || []));
-                $source.val('knxproj');
-                refreshStatus();
-                var name = result.projectName ? ' "' + result.projectName + '"' : '';
-                var withDpt = (result.groupAddresses || []).filter(function (e) { return e.dpt; }).length;
-                var msg =
-                  'Parsed' + name + ' — ' +
-                  (result.groupAddresses || []).length + ' GAs (' +
-                  withDpt + ' with DPT)';
-                if ((result.warnings || []).length) {
-                  msg += ' · ' + result.warnings.length + ' warning(s)';
-                }
-                $status.text(msg);
-              })
-              .fail(function (xhr) {
-                setBusy(false);
-                var msg = 'Parse failed';
-                try {
-                  if (xhr.responseJSON && xhr.responseJSON.error) msg += ': ' + xhr.responseJSON.error;
-                } catch (e) {}
-                $status.text(msg);
-              });
-          };
+          fr.onload = function (ev) { uploadBinary(ev.target.result, true); };
           fr.onerror = function () {
             setBusy(false);
             $status.text('Could not read file');
@@ -102,26 +173,26 @@
         // CSV path — read as text, fill the textarea, clear any pre-parsed entries.
         var reader = new FileReader();
         reader.onload = function (e) {
-          $textarea.val(e.target.result);
-          $entries.val('');
-          $source.val('csv-upload');
+          $textarea.val(e.target.result).trigger('change');
+          $entries.val('').trigger('change');
+          $source.val('csv-upload').trigger('change');
           refreshStatus();
         };
         reader.readAsText(file);
       });
 
       $clear.on('click', function () {
-        $textarea.val('');
-        $entries.val('');
-        $source.val('unknown');
+        $textarea.val('').trigger('change');
+        $entries.val('').trigger('change');
+        $source.val('unknown').trigger('change');
         $file.val('');
         refreshStatus();
       });
 
       $textarea.on('input', function () {
         // Manual paste invalidates a previous .knxproj parse.
-        if (($entries.val() || '').trim()) $entries.val('');
-        if (($textarea.val() || '').trim()) $source.val('csv-paste');
+        if (($entries.val() || '').trim()) $entries.val('').trigger('change');
+        if (($textarea.val() || '').trim()) $source.val('csv-paste').trigger('change');
         refreshStatus();
       });
 

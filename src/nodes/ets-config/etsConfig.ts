@@ -72,46 +72,89 @@ export = function (RED: NodeAPI) {
   );
 
   // Admin endpoint: parse a .knxproj upload and return the extracted GA list.
-  // Editor sends the file body as application/octet-stream (bypasses the
-  // global JSON/urlencoded body parsers, which can't handle multi-MB binaries).
+  //
+  // The editor can send either:
+  //   - application/octet-stream raw body (preferred for big files)
+  //   - application/json {"fileBase64": "..."} (fallback when middleware
+  //     in front of us has consumed the raw stream)
+  //
+  // Some Node-RED middleware stacks pre-consume request bodies, so we accept
+  // whichever shape arrives at our handler. Logs include byte counts so the
+  // failure mode (empty body, mid-stream truncation, base64 path) is obvious
+  // in the Node-RED log.
   RED.httpAdmin.post(
     '/eelectron-knxip-ets-config/parse-knxproj',
     RED.auth.needsPermission('flows.write'),
     (req, res) => {
+      const MAX = 100 * 1024 * 1024;
+
+      const finish = (buf: Buffer, source: string) => {
+        const log = RED.log;
+        if (buf.length === 0) {
+          log.warn(`[knxip] /parse-knxproj: empty body via ${source}`);
+          res.status(400).json({ error: 'Empty upload — body could not be collected' });
+          return;
+        }
+        log.info(
+          `[knxip] /parse-knxproj: ${buf.length} bytes via ${source}`,
+        );
+        try {
+          const result = parseKnxproj(buf);
+          log.info(
+            `[knxip] /parse-knxproj: parsed ${result.groupAddresses.length} GAs from "${result.projectName ?? '?'}"`,
+          );
+          res.json(result);
+        } catch (err) {
+          log.warn(`[knxip] /parse-knxproj: ${(err as Error).message}`);
+          res.status(400).json({ error: (err as Error).message });
+        }
+      };
+
+      // Path 1: middleware already populated req.body as a Buffer.
+      const body = (req as { body?: unknown }).body;
+      if (Buffer.isBuffer(body) && body.length > 0) {
+        finish(body, 'pre-parsed Buffer');
+        return;
+      }
+      // Path 2: middleware parsed JSON with a base64 field.
+      if (
+        body &&
+        typeof body === 'object' &&
+        typeof (body as { fileBase64?: unknown }).fileBase64 === 'string'
+      ) {
+        const b64 = (body as { fileBase64: string }).fileBase64;
+        try {
+          const decoded = Buffer.from(b64, 'base64');
+          finish(decoded, `JSON.fileBase64 (${b64.length} chars)`);
+        } catch (err) {
+          res.status(400).json({ error: `bad base64: ${(err as Error).message}` });
+        }
+        return;
+      }
+      // Path 3: raw stream collection.
       const chunks: Buffer[] = [];
       let total = 0;
-      const MAX = 100 * 1024 * 1024; // 100 MB hard cap
-
-      const onData = (chunk: Buffer) => {
+      let aborted = false;
+      req.on('data', (chunk: Buffer) => {
+        if (aborted) return;
         total += chunk.length;
         if (total > MAX) {
-          res.status(413).json({ error: 'Upload exceeds 100 MB cap' });
+          aborted = true;
+          if (!res.headersSent) {
+            res.status(413).json({ error: 'Upload exceeds 100 MB cap' });
+          }
           req.destroy();
           return;
         }
         chunks.push(chunk);
-      };
-      const onEnd = () => {
-        if (res.headersSent) return;
-        const buf = Buffer.concat(chunks);
-        if (buf.length === 0) {
-          res.status(400).json({ error: 'Empty upload' });
-          return;
-        }
-        try {
-          const result = parseKnxproj(buf);
-          res.json(result);
-        } catch (err) {
-          res.status(400).json({ error: (err as Error).message });
-        }
-      };
-      const onError = (err: Error) => {
+      });
+      req.on('end', () => {
+        if (aborted || res.headersSent) return;
+        finish(Buffer.concat(chunks), 'raw stream');
+      });
+      req.on('error', (err: Error) => {
         if (!res.headersSent) res.status(500).json({ error: err.message });
-      };
-
-      req.on('data', onData);
-      req.on('end', onEnd);
-      req.on('error', onError);
+      });
     },
   );
 
@@ -141,6 +184,13 @@ export = function (RED: NodeAPI) {
         `${label}: ${result.entries} group addresses (${result.withDpt} with known DPT)`,
       );
     };
+
+    // Diagnostics — visible in the Node-RED log so a "no project data"
+    // warning has context next to it. Logged at info level (not debug) so
+    // it shows up in the default log without changing the runtime log level.
+    self.log(
+      `[knxip] config load: parsedEntries length=${def.parsedEntries?.length ?? 0}, csvData length=${def.csvData?.length ?? 0}, source=${def.source ?? '?'}`,
+    );
 
     try {
       if (def.parsedEntries && def.parsedEntries.trim()) {
