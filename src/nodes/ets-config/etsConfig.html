@@ -4,36 +4,107 @@
     defaults: {
       name: { value: '' },
       csvData: { value: '' },
-      csvSource: { value: 'unknown' },
+      parsedEntries: { value: '' },
+      source: { value: 'unknown' },
     },
     label: function () {
       return this.name || 'ETS project';
     },
     oneditprepare: function () {
-      var node = this;
       var $file = $('#ets-config-file');
       var $clear = $('#ets-config-clear');
       var $status = $('#ets-config-status');
       var $textarea = $('#node-config-input-csvData');
-      var $source = $('#node-config-input-csvSource');
+      var $entries = $('#node-config-input-parsedEntries');
+      var $source = $('#node-config-input-source');
 
       function refreshStatus() {
+        var entries = ($entries.val() || '').trim();
+        if (entries) {
+          try {
+            var arr = JSON.parse(entries);
+            $status.text('Loaded from .knxproj — ' + arr.length + ' group address(es)');
+            return;
+          } catch (e) {
+            $status.text('parsedEntries field is not valid JSON');
+            return;
+          }
+        }
         var text = ($textarea.val() || '').trim();
         if (!text) {
-          $status.text('No CSV loaded');
+          $status.text('No project data loaded');
           return;
         }
         var lines = text.split(/\r?\n/).filter(function (l) { return l.trim() !== ''; }).length;
-        $status.text('Loaded — ' + lines + ' line(s), ' + text.length + ' chars');
+        $status.text('CSV loaded — ' + lines + ' line(s), ' + text.length + ' chars');
+      }
+
+      function setBusy(busy, msg) {
+        $file.prop('disabled', busy);
+        $clear.prop('disabled', busy);
+        if (msg) $status.text(msg);
       }
 
       $file.on('change', function (evt) {
         var file = (evt.target.files || [])[0];
         if (!file) return;
+        var name = (file.name || '').toLowerCase();
+        var isKnxproj = name.endsWith('.knxproj');
+
+        if (isKnxproj) {
+          // Binary upload — POST to the admin endpoint, which parses on the
+          // server and returns the GA list as JSON. We store that JSON in
+          // node config (much smaller than the raw archive).
+          setBusy(true, 'Parsing .knxproj on the server…');
+          var fr = new FileReader();
+          fr.onload = function (ev) {
+            $.ajax({
+              url: 'eelectron-knxip-ets-config/parse-knxproj',
+              type: 'POST',
+              data: ev.target.result,
+              contentType: 'application/octet-stream',
+              processData: false,
+            })
+              .done(function (result) {
+                setBusy(false);
+                $textarea.val('');
+                $entries.val(JSON.stringify(result.groupAddresses || []));
+                $source.val('knxproj');
+                refreshStatus();
+                var name = result.projectName ? ' "' + result.projectName + '"' : '';
+                var withDpt = (result.groupAddresses || []).filter(function (e) { return e.dpt; }).length;
+                var msg =
+                  'Parsed' + name + ' — ' +
+                  (result.groupAddresses || []).length + ' GAs (' +
+                  withDpt + ' with DPT)';
+                if ((result.warnings || []).length) {
+                  msg += ' · ' + result.warnings.length + ' warning(s)';
+                }
+                $status.text(msg);
+              })
+              .fail(function (xhr) {
+                setBusy(false);
+                var msg = 'Parse failed';
+                try {
+                  if (xhr.responseJSON && xhr.responseJSON.error) msg += ': ' + xhr.responseJSON.error;
+                } catch (e) {}
+                $status.text(msg);
+              });
+          };
+          fr.onerror = function () {
+            setBusy(false);
+            $status.text('Could not read file');
+          };
+          fr.readAsArrayBuffer(file);
+          return;
+        }
+
+        // CSV path — read as text, fill the textarea, clear any pre-parsed entries.
         var reader = new FileReader();
         reader.onload = function (e) {
           $textarea.val(e.target.result);
-          $source.val('upload');
+          $entries.val('');
+          $source.val('csv-upload');
           refreshStatus();
         };
         reader.readAsText(file);
@@ -41,12 +112,19 @@
 
       $clear.on('click', function () {
         $textarea.val('');
+        $entries.val('');
         $source.val('unknown');
         $file.val('');
         refreshStatus();
       });
 
-      $textarea.on('input', refreshStatus);
+      $textarea.on('input', function () {
+        // Manual paste invalidates a previous .knxproj parse.
+        if (($entries.val() || '').trim()) $entries.val('');
+        if (($textarea.val() || '').trim()) $source.val('csv-paste');
+        refreshStatus();
+      });
+
       refreshStatus();
     },
   });
@@ -58,50 +136,48 @@
     <input type="text" id="node-config-input-name" />
   </div>
   <div class="form-row">
-    <label><i class="fa fa-upload"></i> CSV file</label>
-    <input type="file" id="ets-config-file" accept=".csv,.txt" style="width:auto;" />
+    <label><i class="fa fa-upload"></i> Project file</label>
+    <input type="file" id="ets-config-file" accept=".csv,.txt,.knxproj" style="width:auto;" />
     <button type="button" class="red-ui-button" id="ets-config-clear" style="margin-left:6px;">Clear</button>
   </div>
   <div class="form-row" style="margin-top:-6px;">
     <label></label>
-    <span id="ets-config-status" style="color:#888;font-style:italic;">No CSV loaded</span>
+    <span id="ets-config-status" style="color:#888;font-style:italic;">No project data loaded</span>
   </div>
   <div class="form-row" style="margin-bottom: 0;">
     <label for="node-config-input-csvData"><i class="fa fa-file-text-o"></i> CSV content</label>
   </div>
   <div class="form-row">
     <textarea id="node-config-input-csvData" rows="10" style="width:100%;font-family:monospace;font-size:11px;"
-              placeholder="Or paste the ETS group-address CSV export here…"></textarea>
+              placeholder="Paste the ETS group-address CSV export here, or upload a .csv / .knxproj above…"></textarea>
   </div>
-  <input type="hidden" id="node-config-input-csvSource" />
+  <input type="hidden" id="node-config-input-parsedEntries" />
+  <input type="hidden" id="node-config-input-source" />
 </script>
 
 <script type="text/html" data-help-name="eelectron-knxip-ets-config">
   <p>Holds a parsed ETS project so other nodes can look up the DPT, name, and
   description for a given group address automatically.</p>
 
-  <h3>How to use</h3>
-  <ol>
-    <li>In ETS, export the group addresses to CSV (with the DatapointType column).</li>
-    <li>Either upload that file here, or paste its contents into the textarea.</li>
-    <li>Reference this config from any of:
-      <ul>
-        <li><code>knxip ets</code> — translator with auto/decode/encode modes</li>
-        <li><code>knxip listener</code> — auto-decodes inbound telegrams using the
-          per-GA DPT; supports an "All from ETS" subscription mode</li>
-        <li><code>knxip writer</code> — encodes outbound payloads using the per-GA
-          DPT when none is supplied on the message</li>
-      </ul>
-    </li>
-  </ol>
-
-  <h3>Supported CSV variants</h3>
+  <h3>How to load a project</h3>
+  <p>Two paths, pick whichever fits:</p>
   <ul>
-    <li>Comma, semicolon, or tab delimiters (auto-detected)</li>
-    <li>With or without header row</li>
-    <li>The standard ETS hierarchical 9-column export
-      (<code>Main, Middle, Sub, Address, …, DatapointType, Security</code>);
-      parent pseudo-rows like <code>1/-/-</code> are silently skipped.</li>
+    <li><b>Group-address CSV</b> — in ETS choose <i>Group Addresses → Export</i>.
+      Comma, semicolon or tab delimiters; with or without header. Upload the file
+      or paste its contents into the textarea.</li>
+    <li><b>.knxproj archive</b> — the full ETS6 project file. Uploaded files are
+      parsed on the Node-RED server and only the extracted GA list is stored in
+      the flow (the raw archive isn't kept in <code>flows.json</code>).
+      Password-protected exports aren't supported in this version — re-export
+      without a password.</li>
+  </ul>
+  <p>Reference this config from any of:</p>
+  <ul>
+    <li><code>knxip ets</code> — translator with auto/decode/encode modes</li>
+    <li><code>knxip listener</code> — auto-decodes inbound telegrams using the
+      per-GA DPT; supports an "All from ETS" subscription mode</li>
+    <li><code>knxip writer</code> — encodes outbound payloads using the per-GA
+      DPT when none is supplied on the message</li>
   </ul>
 
   <h3>DPT id normalisation</h3>

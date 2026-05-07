@@ -4,6 +4,7 @@
 import { GroupAddress } from '../core/address';
 import { parseEtsCsv } from './csvParser';
 import { normalizeDptId } from './dptNormalize';
+import { type KnxprojGroupAddress, parseKnxproj } from './knxproj';
 
 export interface ETSEntry {
   /** Original GA string, e.g. "1/2/3". */
@@ -68,6 +69,45 @@ export class ETSProjectMap {
       if (entry.dpt) withDpt += 1;
       else if (row.dpt) unknownDpt.push({ ga: row.ga, dptRaw: row.dpt });
       this.byRaw.set(raw, entry);
+    }
+    return {
+      entries: this.byRaw.size,
+      withDpt,
+      unknownDpt,
+      warnings,
+    };
+  }
+
+  /** Load directly from a .knxproj archive buffer. */
+  loadKnxproj(buffer: Buffer): ETSLoadResult & { projectName: string | null } {
+    const { groupAddresses, projectName, warnings } = parseKnxproj(buffer);
+    const result = this.loadParsedEntries(groupAddresses);
+    return { ...result, projectName, warnings: [...warnings, ...result.warnings] };
+  }
+
+  /**
+   * Ingest a pre-parsed list of entries (e.g. produced by the editor's admin
+   * endpoint after uploading a .knxproj). Used so we don't have to ship the
+   * whole binary archive inside the Node-RED node config.
+   */
+  loadParsedEntries(entries: KnxprojGroupAddress[]): ETSLoadResult {
+    this.byRaw.clear();
+    const warnings: string[] = [];
+    const unknownDpt: { ga: string; dptRaw: string }[] = [];
+    let withDpt = 0;
+    for (const e of entries) {
+      const norm = normalizeDptId(e.dpt);
+      const entry: ETSEntry = {
+        ga: e.ga,
+        raw: e.raw,
+        dpt: norm?.registered ? norm.id : null,
+        dptRaw: e.dpt,
+        name: e.name,
+        description: e.description,
+      };
+      if (entry.dpt) withDpt += 1;
+      else if (e.dpt) unknownDpt.push({ ga: e.ga, dptRaw: e.dpt });
+      this.byRaw.set(e.raw, entry);
     }
     return {
       entries: this.byRaw.size,
