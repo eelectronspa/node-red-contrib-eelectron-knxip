@@ -108,7 +108,23 @@
         if ((result.warnings || []).length) {
           msg += ' · ' + result.warnings.length + ' warning(s)';
         }
-        $status.text(msg + ' — click Update to save.');
+        $status.text(msg + ' — click Update/Add to save.');
+
+        // Project data only reaches the runtime side once Node-RED Deploy
+        // pushes the new config into a fresh ETS-config node instance. A
+        // visible toast here closes the loop so users don't expect the new
+        // GAs to be queryable from listener/writer/ets nodes immediately.
+        if (typeof RED !== 'undefined' && typeof RED.notify === 'function') {
+          var deployHint = 'KNX/IP: ETS project loaded into the dialog. ' +
+            'Click Update/Add, then Deploy to make the new ' +
+            (result.groupAddresses || []).length + ' GA(s) live.';
+          try {
+            RED.notify(deployHint, { type: 'warning', timeout: 6000 });
+          } catch (_) {
+            // Older Node-REDs only accept the (msg, type) form.
+            RED.notify(deployHint, 'warning');
+          }
+        }
       }
 
       function handleParseError(xhr, attemptedBase64) {

@@ -4,10 +4,18 @@
 // detach disconnects.
 
 import type { Node, NodeAPI, NodeDef } from 'node-red';
-import type { GroupAddressStyle } from '../../core/address';
+import { GroupAddress, type GroupAddressStyle } from '../../core/address';
+import { type APCI, encodeApci } from '../../core/apci';
+import type { CEMIFrame } from '../../core/cemi';
+import { getDpt, hasDpt } from '../../dpt';
 import { type DiscoveryOptions, discoverGateways } from '../../io/discovery';
 import { TunnelClient } from '../../io/tunnel';
-import type { KnxConfigNode } from '../shared/configNode';
+import {
+  busMonitor,
+  type TelegramDecoded,
+  type TelegramRecord,
+} from '../../runtime/busMonitor';
+import type { KnxConfigNode, KnxEtsConfigNode } from '../shared/configNode';
 // Eagerly load DPT codecs so they're registered when the package is required.
 import '../../dpt';
 
@@ -46,6 +54,101 @@ function toNumber(v: string | number | undefined, fallback: number): number {
 }
 
 export = function (RED: NodeAPI) {
+  // ---- Bus-monitor admin endpoints ---------------------------------------
+  // GET .../monitor/recent  → JSON snapshot of the in-memory ring buffer.
+  // GET .../monitor/stream  → text/event-stream that flushes the buffer on
+  //   connect and emits each new telegram. Both are gated on flows.read so
+  //   only authenticated editor sessions see live bus traffic.
+  RED.httpAdmin.get(
+    '/eelectron-knxip/monitor/recent',
+    RED.auth.needsPermission('flows.read'),
+    (_req, res) => {
+      res.json({
+        size: busMonitor.size,
+        capacity: busMonitor.capacity,
+        records: busMonitor.recent(),
+      });
+    },
+  );
+
+  RED.httpAdmin.get(
+    '/eelectron-knxip/monitor/stream',
+    RED.auth.needsPermission('flows.read'),
+    (req, res) => {
+      res.setHeader('Content-Type', 'text/event-stream');
+      res.setHeader('Cache-Control', 'no-cache, no-transform');
+      res.setHeader('Connection', 'keep-alive');
+      // Disable nginx-style proxy buffering so events flow as soon as we
+      // write them.
+      res.setHeader('X-Accel-Buffering', 'no');
+      // Force identity coding — defends against an upstream `compression`
+      // middleware grabbing this response and gzip-buffering each event
+      // until the buffer fills (which at telegram volume essentially never
+      // happens, so the sidebar would freeze after the first message).
+      res.setHeader('Content-Encoding', 'identity');
+      // Disable Node's socket-level idle timeout for this long-lived
+      // connection. (`req.socket` exists on the Node http API; the cast
+      // keeps both Express types happy.)
+      const sock = (req as unknown as { socket?: { setTimeout?: (ms: number) => void } }).socket;
+      if (sock?.setTimeout) sock.setTimeout(0);
+      res.flushHeaders?.();
+
+      // Some proxies wait for the first chunk before forwarding headers;
+      // a comment line is harmless and makes the stream open immediately.
+      const flushNow = () => {
+        // `res.flush` is added by the express `compression` middleware; on a
+        // plain stack it doesn't exist. Either way, write it as a separate
+        // HTTP/1.1 chunk so the browser sees it immediately.
+        const r = res as unknown as { flush?: () => void };
+        if (typeof r.flush === 'function') r.flush();
+      };
+
+      const writeData = (payload: string) => {
+        res.write(payload);
+        flushNow();
+      };
+
+      writeData(': monitor stream open\n\n');
+
+      // Flush whatever's buffered first so a freshly-opened sidebar shows
+      // recent history without waiting for new traffic.
+      for (const record of busMonitor.recent()) {
+        writeData(`data: ${JSON.stringify(record)}\n\n`);
+      }
+
+      const onTelegram = (record: TelegramRecord) => {
+        writeData(`data: ${JSON.stringify(record)}\n\n`);
+      };
+      const onCleared = () => {
+        writeData('event: cleared\ndata: {}\n\n');
+      };
+      busMonitor.on('telegram', onTelegram);
+      busMonitor.on('cleared', onCleared);
+
+      // Heartbeat keeps proxies from killing an "idle" connection. 10 s is
+      // tighter than typical proxy idle timeouts (30 s / 60 s) so we always
+      // keep the path warm. SSE comment lines (starting with `:`) are
+      // ignored by the browser.
+      const heartbeat = setInterval(() => writeData(': heartbeat\n\n'), 10_000);
+      heartbeat.unref?.();
+
+      let closed = false;
+      const cleanup = () => {
+        if (closed) return;
+        closed = true;
+        clearInterval(heartbeat);
+        busMonitor.off('telegram', onTelegram);
+        busMonitor.off('cleared', onCleared);
+      };
+      req.on('close', cleanup);
+      req.on('error', cleanup);
+      // `res.on('close')` covers cases where Node tears the response down
+      // independently of the request (e.g. proxy hang-up).
+      res.on('close', cleanup);
+      res.on('error', cleanup);
+    },
+  );
+
   // Admin endpoint: trigger a multicast discovery and return found gateways.
   // Editor uses this for the "Discover" button in the tunnel-config dialog.
   RED.httpAdmin.post(
@@ -125,6 +228,20 @@ export = function (RED: NodeAPI) {
     const onError = (err: Error) => self.error(`KNX/IP tunnel error: ${err.message}`);
     client.on('error', onError);
 
+    // Bus-monitor wiring — push every inbound CEMI to the singleton so the
+    // editor sidebar shows a live trace.
+    const tunnelLabel = def.name && def.name.trim()
+      ? def.name
+      : `${def.gatewayIp}:${toNumber(def.gatewayPort, 3671)}`;
+    const onCemi = (cemi: CEMIFrame) => {
+      try {
+        busMonitor.push(buildTelegramRecord(RED, self.id, tunnelLabel, cemi));
+      } catch (err) {
+        self.debug(`bus-monitor push failed: ${(err as Error).message}`);
+      }
+    };
+    client.on('cemi', onCemi);
+
     const refs = new Set<string>();
     self.client = client;
     self.groupAddressStyle = def.groupAddressStyle ?? 'long';
@@ -164,3 +281,93 @@ export = function (RED: NodeAPI) {
     },
   });
 };
+
+/**
+ * Assemble a TelegramRecord from a freshly-received CEMI. Best-effort: when
+ * the inner APDU doesn't decode to a known APCI we still surface raw bytes
+ * so the sidebar shows *something* rather than dropping the line. When any
+ * ETS config in the workspace knows the destination GA, we attach a decoded
+ * value (with unit, when the codec exposes one) so the sidebar can show the
+ * physical reading instead of opaque hex.
+ */
+function buildTelegramRecord(
+  RED: NodeAPI,
+  tunnelId: string,
+  tunnelLabel: string,
+  cemi: CEMIFrame,
+): TelegramRecord {
+  const data = cemi.data;
+  const source = data?.srcAddr ? data.srcAddr.toString() : null;
+  const destination = data?.dstAddr ? data.dstAddr.toString() : null;
+  let apci = 'other';
+  let raw = '';
+  let decoded: TelegramDecoded | undefined;
+  if (data?.payload) {
+    apci = data.payload.kind;
+    try {
+      raw = encodeApci(data.payload).toString('hex');
+    } catch {
+      // Encode failure shouldn't drop the record — leave raw empty.
+    }
+    if (destination) {
+      decoded = decodeAgainstEtsConfigs(RED, destination, data.payload) ?? undefined;
+    }
+  }
+  return {
+    ts: Date.now(),
+    tunnelId,
+    tunnelLabel,
+    direction: 'in',
+    source,
+    destination,
+    apci,
+    raw,
+    ...(decoded ? { decoded } : {}),
+  };
+}
+
+/**
+ * Walk every loaded ETS config node in the runtime, find the first one that
+ * knows the given destination GA + has a registered DPT codec, and decode
+ * the APDU value with it. Returns null if no map matches or the APCI doesn't
+ * carry a value (e.g. GroupValueRead).
+ */
+function decodeAgainstEtsConfigs(
+  RED: NodeAPI,
+  destination: string,
+  apci: APCI,
+): TelegramDecoded | null {
+  // GroupValueRead has no payload — nothing to decode.
+  if (apci.kind !== 'GroupValueWrite' && apci.kind !== 'GroupValueResponse') {
+    return null;
+  }
+  const apduValue = apci.data;
+  let ga: GroupAddress;
+  try {
+    ga = new GroupAddress(destination);
+  } catch {
+    return null;
+  }
+  let matched: TelegramDecoded | null = null;
+  RED.nodes.eachNode((cfg: { id: string; type: string }) => {
+    if (matched) return;
+    if (cfg.type !== 'eelectron-knxip-ets-config') return;
+    const node = RED.nodes.getNode(cfg.id) as unknown as KnxEtsConfigNode | null;
+    if (!node?.map) return;
+    const entry = node.map.get(ga);
+    if (!entry || !entry.dpt || !hasDpt(entry.dpt)) return;
+    try {
+      const codec = getDpt(entry.dpt);
+      const value = codec.decode(apduValue);
+      matched = {
+        value,
+        dpt: entry.dpt,
+        ...(entry.name ? { gaName: entry.name } : {}),
+        ...(codec.unit ? { unit: codec.unit } : {}),
+      };
+    } catch {
+      // codec threw — leave matched null and try next config (rare)
+    }
+  });
+  return matched;
+}

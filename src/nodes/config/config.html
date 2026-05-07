@@ -1,3 +1,339 @@
+<!--
+  KNX/IP bus-monitor sidebar.
+  Registers once when the editor loads (the IIFE below runs as soon as
+  Node-RED parses this file, regardless of whether a config node is open).
+  The sidebar streams every received telegram via SSE and renders a live
+  scrolling table.
+-->
+<script type="text/javascript">
+  (function () {
+    if (typeof RED === 'undefined' || !RED.sidebar || !RED.sidebar.addTab) return;
+    if (RED.sidebar.tabs && RED.sidebar.tabs['eelectron-knxip-monitor']) return;
+
+    // Inject the sidebar-tab icon (KNX small logo) as a CSS class once.
+    // We always use the `-light` variant (black glyph). Detecting Node-RED's
+    // theme reliably across all theme packages is fragile, and a black glyph
+    // reads acceptably on all the common dark themes too. Users who want
+    // the white glyph can swap the URL below to `sidebar-logo-small-dark.svg`.
+    if (!document.getElementById('knxip-monitor-icon-style')) {
+      var $s = document.createElement('style');
+      $s.id = 'knxip-monitor-icon-style';
+      $s.textContent =
+        '.knxip-sidebar-icon{' +
+          'display:inline-block;' +
+          'width:18px;height:18px;' +
+          'vertical-align:middle;' +
+          'background-image:url("icons/node-red-contrib-eelectron-knxip/sidebar-logo-small-light.svg");' +
+          'background-size:contain;' +
+          'background-repeat:no-repeat;' +
+          'background-position:center;' +
+        '}';
+      document.head.appendChild($s);
+    }
+
+    var MAX_ROWS = 1000;          // ring on the client too — older rows fall off
+    var paused = false;
+    var pendingRows = [];
+    var allRows = [];
+    var filterText = '';
+    var es = null;
+    var connected = false;
+
+    var $root = $('<div>').css({
+      display: 'flex',
+      flexDirection: 'column',
+      height: '100%',
+      fontSize: '12px',
+    });
+
+    // ---- Header (toolbar) -------------------------------------------------
+    var $toolbar = $('<div>').css({
+      display: 'flex',
+      alignItems: 'center',
+      gap: '6px',
+      padding: '6px 8px',
+      borderBottom: '1px solid #ccc',
+      flex: '0 0 auto',
+      flexWrap: 'wrap',
+    });
+    var $pauseBtn = $('<button type="button" class="red-ui-button">')
+      .html('<i class="fa fa-pause"></i>')
+      .attr('title', 'Pause');
+    var $clearBtn = $('<button type="button" class="red-ui-button">')
+      .html('<i class="fa fa-trash-o"></i>')
+      .attr('title', 'Clear view');
+    var $filterInput = $('<input type="text" placeholder="filter (GA, IA, hex…)">').css({
+      flex: '1 1 200px',
+      minWidth: '120px',
+    });
+    $toolbar.append($pauseBtn, $clearBtn, $filterInput);
+
+    // ---- Table ------------------------------------------------------------
+    var $tableWrap = $('<div>').css({
+      flex: '1 1 auto',
+      overflow: 'auto',
+      fontFamily: 'var(--red-ui-monospace-font, monospace)',
+    });
+    var $table = $('<table>').css({
+      width: '100%',
+      borderCollapse: 'collapse',
+      fontSize: '11px',
+      lineHeight: '1.4',
+    });
+    var $thead = $('<thead>').html(
+      '<tr>' +
+        '<th style="text-align:left; padding:4px 6px; border-bottom:1px solid #ccc; position:sticky; top:0; background:var(--red-ui-secondary-background,#fff);">Time</th>' +
+        '<th style="text-align:left; padding:4px 6px; border-bottom:1px solid #ccc; position:sticky; top:0; background:var(--red-ui-secondary-background,#fff);">Tunnel</th>' +
+        '<th style="text-align:left; padding:4px 6px; border-bottom:1px solid #ccc; position:sticky; top:0; background:var(--red-ui-secondary-background,#fff);">Src</th>' +
+        '<th style="text-align:left; padding:4px 6px; border-bottom:1px solid #ccc; position:sticky; top:0; background:var(--red-ui-secondary-background,#fff);">Dst</th>' +
+        '<th style="text-align:left; padding:4px 6px; border-bottom:1px solid #ccc; position:sticky; top:0; background:var(--red-ui-secondary-background,#fff);">APCI</th>' +
+        '<th style="text-align:left; padding:4px 6px; border-bottom:1px solid #ccc; position:sticky; top:0; background:var(--red-ui-secondary-background,#fff);">Value / hex</th>' +
+        '</tr>',
+    );
+    var $tbody = $('<tbody>');
+    $table.append($thead, $tbody);
+    $tableWrap.append($table);
+
+    // ---- Footer (status) --------------------------------------------------
+    var $footer = $('<div>').css({
+      padding: '4px 8px',
+      borderTop: '1px solid #ccc',
+      flex: '0 0 auto',
+      color: '#888',
+      fontSize: '11px',
+    });
+
+    $root.append($toolbar, $tableWrap, $footer);
+
+    function fmtTime(ts) {
+      var d = new Date(ts);
+      var hh = String(d.getHours()).padStart(2, '0');
+      var mm = String(d.getMinutes()).padStart(2, '0');
+      var ss = String(d.getSeconds()).padStart(2, '0');
+      var ms = String(d.getMilliseconds()).padStart(3, '0');
+      return hh + ':' + mm + ':' + ss + '.' + ms;
+    }
+
+    function apciColor(apci) {
+      if (apci === 'GroupValueWrite') return '#1976d2';      // blue
+      if (apci === 'GroupValueResponse') return '#388e3c';   // green
+      if (apci === 'GroupValueRead') return '#9c27b0';       // purple
+      return '#666';
+    }
+
+    function rowMatchesFilter(r, q) {
+      if (!q) return true;
+      q = q.toLowerCase();
+      var dec = r.decoded || {};
+      return (
+        (r.source && r.source.toLowerCase().indexOf(q) !== -1) ||
+        (r.destination && r.destination.toLowerCase().indexOf(q) !== -1) ||
+        (r.tunnelLabel && r.tunnelLabel.toLowerCase().indexOf(q) !== -1) ||
+        (r.apci && r.apci.toLowerCase().indexOf(q) !== -1) ||
+        (r.raw && r.raw.toLowerCase().indexOf(q) !== -1) ||
+        (dec.gaName && dec.gaName.toLowerCase().indexOf(q) !== -1) ||
+        (dec.dpt && dec.dpt.toLowerCase().indexOf(q) !== -1) ||
+        (dec.value !== undefined && String(dec.value).toLowerCase().indexOf(q) !== -1)
+      );
+    }
+
+    function buildRow(r) {
+      var $tr = $('<tr>')
+        .data('record', r)
+        .css({ borderBottom: '1px solid var(--red-ui-secondary-border-color, #eee)' });
+      $tr.append(
+        $('<td>').css({ padding: '2px 6px', whiteSpace: 'nowrap' }).text(fmtTime(r.ts)),
+      );
+      $tr.append(
+        $('<td>').css({ padding: '2px 6px', whiteSpace: 'nowrap' }).text(r.tunnelLabel || r.tunnelId || ''),
+      );
+      $tr.append(
+        $('<td>').css({ padding: '2px 6px', whiteSpace: 'nowrap' }).text(r.source || ''),
+      );
+      var $dst = $('<td>').css({ padding: '2px 6px', whiteSpace: 'nowrap' });
+      $dst.append($('<span>').css({ fontWeight: 'bold' }).text(r.destination || ''));
+      if (r.decoded && r.decoded.gaName) {
+        // Literal space in the text node makes copy-paste read "1/1/29 Name"
+        // instead of "1/1/29Name"; the visual gap is unchanged.
+        $dst.append(
+          $('<span>')
+            .css({ marginLeft: '6px', color: '#888', fontStyle: 'italic' })
+            .text(' ' + r.decoded.gaName),
+        );
+      }
+      $tr.append($dst);
+      $tr.append(
+        $('<td>')
+          .css({ padding: '2px 6px', whiteSpace: 'nowrap', color: apciColor(r.apci) })
+          .text(
+            r.apci === 'GroupValueWrite' ? 'WRITE' :
+            r.apci === 'GroupValueResponse' ? 'RESP' :
+            r.apci === 'GroupValueRead' ? 'READ' :
+            r.apci || '?',
+          ),
+      );
+      var valueText;
+      if (r.decoded) {
+        var v = r.decoded.value;
+        // Object-valued DPTs (DPT 10 Time, DPT 11 Date, etc.) decode into a
+        // structured object; String(obj) prints the useless "[object Object]"
+        // — JSON.stringify is the readable form.
+        var asText =
+          v === null || v === undefined ? ''
+          : typeof v === 'object' ? (function () {
+              try { return JSON.stringify(v); } catch (_) { return String(v); }
+            })()
+          : String(v);
+        valueText = asText + (r.decoded.unit ? ' ' + r.decoded.unit : '');
+      } else {
+        valueText = r.raw || '';
+      }
+      $tr.append(
+        $('<td>').css({ padding: '2px 6px', wordBreak: 'break-all' }).text(valueText),
+      );
+      return $tr;
+    }
+
+    function renderAll() {
+      $tbody.empty();
+      var visible = 0;
+      for (var i = 0; i < allRows.length; i++) {
+        if (rowMatchesFilter(allRows[i], filterText)) {
+          $tbody.append(buildRow(allRows[i]));
+          visible++;
+        }
+      }
+      updateFooter(visible);
+      // Auto-scroll to bottom unless the user has scrolled up.
+      var el = $tableWrap[0];
+      if (el && el.scrollTop + el.clientHeight + 50 >= el.scrollHeight) {
+        el.scrollTop = el.scrollHeight;
+      }
+    }
+
+    function appendRow(r) {
+      allRows.push(r);
+      while (allRows.length > MAX_ROWS) allRows.shift();
+      if (!rowMatchesFilter(r, filterText)) {
+        updateFooter();
+        return;
+      }
+      $tbody.append(buildRow(r));
+      // Trim DOM to MAX_ROWS visible rows.
+      var rows = $tbody.children();
+      while (rows.length > MAX_ROWS) {
+        rows.first().remove();
+        rows = $tbody.children();
+      }
+      var el = $tableWrap[0];
+      if (el && el.scrollTop + el.clientHeight + 50 >= el.scrollHeight) {
+        el.scrollTop = el.scrollHeight;
+      }
+      updateFooter();
+    }
+
+    function updateFooter(visibleOverride) {
+      var visible = visibleOverride;
+      if (visible === undefined) visible = $tbody.children().length;
+      var status = connected ? '● live' : '○ disconnected';
+      var pause = paused ? ' · paused' : '';
+      $footer.text(
+        status + pause +
+        ' · ' + allRows.length + ' record(s) buffered' +
+        (filterText ? ' · ' + visible + ' shown' : ''),
+      );
+    }
+
+    // ---- Event wiring -----------------------------------------------------
+    $pauseBtn.on('click', function () {
+      paused = !paused;
+      $pauseBtn.html(paused ? '<i class="fa fa-play"></i>' : '<i class="fa fa-pause"></i>');
+      $pauseBtn.attr('title', paused ? 'Resume' : 'Pause');
+      if (!paused && pendingRows.length) {
+        for (var i = 0; i < pendingRows.length; i++) appendRow(pendingRows[i]);
+        pendingRows = [];
+      }
+      updateFooter();
+    });
+
+    $clearBtn.on('click', function () {
+      allRows = [];
+      pendingRows = [];
+      $tbody.empty();
+      updateFooter();
+    });
+
+    var filterDebounce = null;
+    $filterInput.on('input', function () {
+      var v = $filterInput.val() || '';
+      clearTimeout(filterDebounce);
+      filterDebounce = setTimeout(function () {
+        filterText = v.trim();
+        renderAll();
+      }, 80);
+    });
+
+    function connect() {
+      if (es) {
+        try { es.close(); } catch (_) { }
+      }
+      try {
+        es = new EventSource('eelectron-knxip/monitor/stream');
+      } catch (e) {
+        connected = false;
+        updateFooter();
+        return;
+      }
+      es.onopen = function () {
+        connected = true;
+        updateFooter();
+      };
+      es.onmessage = function (ev) {
+        try {
+          var rec = JSON.parse(ev.data);
+          if (paused) {
+            pendingRows.push(rec);
+            // Don't let the pending list grow unbounded — keep the most recent
+            // batch sized to MAX_ROWS so we never lock the UI on resume.
+            if (pendingRows.length > MAX_ROWS) pendingRows.shift();
+          } else {
+            appendRow(rec);
+          }
+        } catch (e) { /* malformed; ignore */ }
+      };
+      es.addEventListener('cleared', function () {
+        allRows = [];
+        pendingRows = [];
+        $tbody.empty();
+        updateFooter();
+      });
+      es.onerror = function () {
+        connected = false;
+        updateFooter();
+        // EventSource auto-reconnects with a backoff; nothing else to do.
+      };
+    }
+
+    RED.sidebar.addTab({
+      id: 'eelectron-knxip-monitor',
+      name: 'KNX/IP',
+      label: 'KNX/IP',
+      iconClass: 'knxip-sidebar-icon',
+      content: $root,
+      enableOnEdit: true,
+      onchange: function () {
+        if (!es) connect();
+      },
+    });
+
+    // Open the SSE connection right away so the buffer is warm even before the
+    // user clicks the tab. Inexpensive — the server endpoint is gated on
+    // editor auth so it's effectively a no-op until login completes.
+    connect();
+    updateFooter();
+  })();
+</script>
+
 <script type="text/javascript">
   RED.nodes.registerType('eelectron-knxip-config', {
     category: 'config',
@@ -228,7 +564,7 @@
         $etsStatus.text(
           'Filled from ' + (iface.ipAddress || iface.individualAddress) +
           ' as user_id=' + userId +
-          '. Click Update to save.',
+          '. Click Update/Add to save.',
         );
       });
     },

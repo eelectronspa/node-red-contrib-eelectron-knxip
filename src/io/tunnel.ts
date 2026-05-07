@@ -476,13 +476,29 @@ export class TunnelClient extends EventEmitter {
       communicationChannelId: this._channelId,
       controlEndpoint: this._localHpai,
     });
+    // Many gateways — especially Secure ones — handle disconnect by simply
+    // closing the TCP socket without sending a DISCONNECT_RESPONSE. Race the
+    // response against the transport closing so a clean teardown doesn't
+    // hold the disconnect path for the full 10 s timeout. Use a tighter
+    // ceiling (3 s) on TCP since the gateway should react promptly.
+    const tcp = this._isOverTcp();
+    const timeoutMs = tcp ? 3_000 : CONNECT_REQUEST_TIMEOUT_MS;
     const responsePromise = this._awaitResponse<DisconnectResponse>(
       DisconnectResponse.SERVICE_TYPE,
-      CONNECT_REQUEST_TIMEOUT_MS,
+      timeoutMs,
     );
+    const closePromise = new Promise<void>((resolve) => {
+      const t = this._transport;
+      if (!t) return resolve();
+      const onClose = () => {
+        t.off('close', onClose);
+        resolve();
+      };
+      t.once('close', onClose);
+    });
     await this._transport.send(KNXIPFrame.fromBody(body));
     try {
-      await responsePromise;
+      await Promise.race([responsePromise, closePromise]);
     } catch (err) {
       // Tolerate timeout — we're tearing down anyway
       this._logger.debug('No DISCONNECT_RESPONSE before timeout', err);
@@ -493,7 +509,9 @@ export class TunnelClient extends EventEmitter {
     if (!this._transport || this._channelId === null) {
       throw new CommunicationError('Tunnel not connected');
     }
-    const seq = this._seqOut;
+    // Over TCP, send seq=0 always (spec §4.4). Over UDP, use the rolling
+    // 8-bit sequence counter.
+    const seq = this._isOverTcp() ? 0 : this._seqOut;
     const req = new TunnellingRequest({
       communicationChannelId: this._channelId,
       sequenceCounter: seq,
@@ -503,11 +521,16 @@ export class TunnelClient extends EventEmitter {
     const target = this._dataEndpoint ?? undefined;
     await this._transport.send(KNXIPFrame.fromBody(req), target);
     await ackPromise;
-    this._bumpSeqOut();
+    if (!this._isOverTcp()) this._bumpSeqOut();
   }
 
   private _bumpSeqOut(): void {
     this._seqOut = (this._seqOut + 1) & 0xff;
+  }
+
+  /** True when the tunnel runs over TCP (Secure or plain TCP profile). */
+  private _isOverTcp(): boolean {
+    return this._opts.secure !== undefined || this._opts.transport === 'tcp';
   }
 
   // ---------- inbound dispatch ----------
@@ -572,8 +595,25 @@ export class TunnelClient extends EventEmitter {
       );
       return;
     }
+    // KNX/IP Secure §4.4 (and the plain-TCP tunneling profile): over TCP the
+    // inner tunnelling sequence counter is fixed at 0 and the receiver MUST
+    // NOT enforce monotonic ordering — TCP already guarantees in-order
+    // delivery. Skipping the seq-equals-expected check here is what makes
+    // every telegram after the first NOT get treated as a duplicate.
+    if (this._isOverTcp()) {
+      this._logger.debug(
+        `inbound TUNNELLING_REQUEST seq=${req.sequenceCounter} (TCP — seq ignored)`,
+      );
+      this._sendAck(req);
+      this._processIncomingCemi(req.rawCemi);
+      return;
+    }
+
     const expected = this._seqIn;
     const previous = (expected - 1) & 0xff;
+    this._logger.debug(
+      `inbound TUNNELLING_REQUEST seq=${req.sequenceCounter} (expected ${expected}, prev ${previous})`,
+    );
 
     if (req.sequenceCounter === expected) {
       this._seqIn = (expected + 1) & 0xff;

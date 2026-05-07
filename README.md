@@ -1,17 +1,30 @@
 # node-red-contrib-eelectron-knxip
 
-Stable Node-RED nodes for KNX/IP — tunneling over UDP, ETS-driven DPT
-auto-encoding, gateway discovery, and a small set of typed convenience
+Stable Node-RED nodes for KNX/IP — UDP tunneling, **KNX/IP Secure tunneling
+over TCP**, ETS-driven DPT auto-encoding, gateway discovery, a live bus
+monitor in the editor sidebar, and a small set of typed convenience
 encoders for everyday KNX traffic.
+
+![KNX/IP bus monitor sidebar](images/group-monitor.png)
 
 ## Highlights
 
 - **Stable tunnel client** — clean state machine, heartbeat, auto-reconnect,
   duplicate-suppression, multi-tunnel safe (one config = one socket = one
   channel; many configs run side-by-side).
+- **KNX/IP Secure** — full handshake (X25519 ECDH, AES-CMAC, AES-CCM) over
+  TCP per spec §2.5–§4.5, verified end-to-end against real interfaces.
+  Credentials autofill from a `.knxproj` (project password + per-user
+  passwords decrypted on the server, stored encrypted at rest in
+  Node-RED's credentials file — never in `flows.json`).
+- **Live bus monitor** — sidebar tab streams every received telegram in
+  real time over Server-Sent Events. Decodes against any loaded ETS
+  project, shows source IA, GA + name, APCI kind, and a decoded value
+  (with units). Filter by GA, name, DPT, hex, or value substring.
 - **ETS-driven workflow** — load your group-address CSV (any of comma /
-  semicolon / tab variants, with or without headers) and the listener &
-  writer auto-pick the right DPT codec for each GA.
+  semicolon / tab variants, with or without headers) or upload a full
+  `.knxproj` (password-protected ETS6 archives supported); the listener,
+  writer, and bus monitor all auto-pick the right DPT codec for each GA.
 - **Gateway discovery** — *Discover* button in the tunnel-config dialog
   multicasts a SEARCH_REQUEST and lists devices on the LAN.
 - **Editor autocomplete** — GA fields suggest from the bound ETS project
@@ -33,11 +46,16 @@ encoders for everyday KNX traffic.
   ETS binding for automatic DPT lookup. Optional dedupe window.
 
 ### ETS project
-- `eelectron-knxip-ets-config` — holds a parsed ETS group-address CSV
-  (config node).
+- `eelectron-knxip-ets-config` — holds a parsed ETS project. Accepts either
+  a CSV group-address export or a full `.knxproj` archive (password
+  prompt for ETS6-encrypted projects). Surfaces the discovered KNX/IP
+  Secure interfaces to the tunnel-config dialog so passwords can be
+  filled with one click instead of copy-pasted out of ETS.
 - `eelectron-knxip-ets` — translator: decodes APDUs to scalars or encodes
   scalars to APDUs based on `msg.topic` and the project map. Two outputs:
   decoded values + raw passthrough.
+- `eelectron-knxip-ets-inject` — manual / scheduled inject node with a
+  GA picker; payload hint adapts to the selected GA's DPT family.
 
 ### Convenience
 - `eelectron-knxip-state-store` — caches the last value per GA, queryable
@@ -77,6 +95,9 @@ After installing, find ready-to-import flows in Node-RED at
 - 10 Colour control (DPT 232 / 251 — hex / `rgb()` / object)
 - 11 Full project monitor (all GAs from ETS + read-on-connect)
 - 12 Anti-loop dedupe demo
+- 13 KNX/IP Secure tunnel + decoded bus monitor
+- 14 ETS-aware inject node (pick GA from project)
+- 15 Secure write through ETS-inject + writer
 
 ## Development
 

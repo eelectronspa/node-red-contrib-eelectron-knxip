@@ -17,9 +17,6 @@
    version="1.1"
    inkscape:version="0.48.1 "
    sodipodi:docname="Neues Dokument 3">
-  <!-- Darker-green panel behind the logo so the icon area stands out from the
-       lighter node tile colour. Sized to match the padded viewBox above. -->
-  <rect x="-128" y="-61" width="1325" height="632" fill="#9CC78B" />
   <defs
      id="defs4377">
     <clipPath
