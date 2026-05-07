@@ -15,6 +15,10 @@ jobs:
   release:
     name: Build and publish release
     runs-on: ubuntu-latest
+    # Hoisted to job-level so the `if:` on the publish step can read it.
+    # GitHub doesn't expose `secrets.*` to step-level `if:` expressions.
+    env:
+      NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
     steps:
       - uses: actions/checkout@v4
 
@@ -22,6 +26,9 @@ jobs:
         with:
           node-version: '20'
           cache: 'npm'
+          # Wires `npm publish` (below) to the public registry. Harmless on
+          # runs that don't reach the publish step.
+          registry-url: 'https://registry.npmjs.org'
 
       - name: Install
         run: npm ci
@@ -60,3 +67,13 @@ jobs:
           generate_release_notes: false
           draft: false
           prerelease: false
+
+      # Optional npm publish step. Skipped silently when the NPM_TOKEN secret
+      # isn't configured — useful while the package is GitHub-only. Once
+      # management approves publication, add NPM_TOKEN to the repo secrets and
+      # the next tag push will publish to https://www.npmjs.com.
+      - name: Publish to npm
+        if: ${{ env.NPM_TOKEN != '' }}
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish --access public
