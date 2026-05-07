@@ -13,6 +13,20 @@
       autoReconnect: { value: true },
       autoReconnectWaitMs: { value: 3000, validate: RED.validators.number() },
       heartbeatIntervalMs: { value: 20000, validate: RED.validators.number() },
+      transport: { value: 'udp' },
+      secureEnabled: { value: false },
+      secureUserId: {
+        value: 2,
+        validate: function (v) {
+          if (!this.secureEnabled) return true;
+          var n = Number(v);
+          return Number.isInteger(n) && n >= 1 && n <= 127;
+        },
+      },
+    },
+    credentials: {
+      deviceAuthPassword: { type: 'password' },
+      userPassword: { type: 'password' },
     },
     label: function () {
       return this.name || `${this.gatewayIp}:${this.gatewayPort || 3671}`;
@@ -84,6 +98,139 @@
           $('#node-config-input-name').val(g.friendlyName);
         }
       });
+
+      // Secure tunneling: reveal credentials when the toggle is on. Secure
+      // forces TCP per spec — disable the transport selector while on.
+      var $secureChk = $('#node-config-input-secureEnabled');
+      var $secureRows = $('.knxip-secure-row');
+      var $transport = $('#node-config-input-transport');
+
+      function syncSecure() {
+        var on = $secureChk.is(':checked');
+        $secureRows.toggle(on);
+        if (on) {
+          $transport.val('tcp').prop('disabled', true);
+        } else {
+          $transport.prop('disabled', false);
+        }
+      }
+      $secureChk.on('change', syncSecure);
+      syncSecure();
+
+      // "Fill from ETS project" — populate the ETS-config dropdown with the
+      // workspace's ETS config nodes, fetch the chosen one's secure info, and
+      // auto-fill the secure password fields.
+      var $etsPicker = $('#knxip-ets-source');
+      var $etsFill = $('#knxip-ets-fill');
+      var $etsStatus = $('#knxip-ets-status');
+      var $userPicker = $('#knxip-secure-user');
+      var $userPickerRow = $('.knxip-secure-user-row');
+
+      function refreshEtsList() {
+        $etsPicker.empty().append($('<option/>').val('').text('— pick an ETS config —'));
+        RED.nodes.eachConfig(function (cfg) {
+          if (cfg.type !== 'eelectron-knxip-ets-config') return;
+          var label = cfg.name || ('ETS config ' + cfg.id);
+          $etsPicker.append($('<option/>').val(cfg.id).text(label));
+        });
+      }
+
+      function clearUserPicker() {
+        $userPicker.empty();
+        $userPickerRow.hide();
+        $etsFill.prop('disabled', true);
+      }
+      clearUserPicker();
+      refreshEtsList();
+
+      $etsPicker.on('change', function () {
+        var id = $etsPicker.val();
+        clearUserPicker();
+        if (!id) {
+          $etsStatus.text('');
+          return;
+        }
+        $etsStatus.text('Loading project credentials…');
+        $.ajax({
+          url: 'eelectron-knxip-ets-config/' + encodeURIComponent(id) + '/secure-info',
+          type: 'GET',
+        })
+          .done(function (resp) {
+            var ifaces = (resp && resp.secureInterfaces) || [];
+            if (!ifaces.length) {
+              $etsStatus.text(
+                'No secure interfaces found in this project. Re-upload the .knxproj if you just enabled secure mode in ETS.',
+              );
+              return;
+            }
+            // Build a flat option list: device IA → user (with description).
+            ifaces.forEach(function (iface) {
+              var hostLabel = (iface.ipAddress ? iface.ipAddress + ' ' : '') +
+                '(' + (iface.individualAddress || '?') + ')';
+              if (iface.deviceManagementPassword) {
+                $userPicker.append(
+                  $('<option/>')
+                    .val(JSON.stringify({ ifaceIdx: ifaces.indexOf(iface), userType: 'mgmt' }))
+                    .text(hostLabel + ' — Management user (user_id=1)'),
+                );
+              }
+              (iface.tunnelingUsers || []).forEach(function (u) {
+                $userPicker.append(
+                  $('<option/>')
+                    .val(JSON.stringify({ ifaceIdx: ifaces.indexOf(iface), userType: 'tun', userId: u.userId, idx: u.interfaceIndex }))
+                    .text(hostLabel + ' — Tunneling user ' + u.interfaceIndex + ' (user_id=' + u.userId + ')'),
+                );
+              });
+            });
+            // Cache for the Fill click.
+            $etsFill.data('interfaces', ifaces);
+            $userPickerRow.show();
+            $etsFill.prop('disabled', false);
+            $etsStatus.text(
+              'Pick the user you want to authenticate as, then click Fill.',
+            );
+          })
+          .fail(function (xhr) {
+            var msg = 'Could not load secure info';
+            try {
+              var err = xhr.responseJSON && xhr.responseJSON.error;
+              if (err) msg += ': ' + err;
+            } catch (e) {}
+            $etsStatus.text(msg + ' (status ' + xhr.status + ')');
+          });
+      });
+
+      $etsFill.on('click', function () {
+        var ifaces = $etsFill.data('interfaces') || [];
+        var sel = $userPicker.val();
+        if (!sel) return;
+        var pick;
+        try { pick = JSON.parse(sel); } catch (e) { return; }
+        var iface = ifaces[pick.ifaceIdx];
+        if (!iface) return;
+        var userId, userPassword;
+        if (pick.userType === 'mgmt') {
+          userId = 1;
+          userPassword = iface.deviceManagementPassword || '';
+        } else {
+          userId = pick.userId;
+          var tu = (iface.tunnelingUsers || []).find(function (u) { return u.userId === pick.userId; });
+          userPassword = tu ? tu.password : '';
+        }
+        if (iface.ipAddress) {
+          $('#node-config-input-gatewayIp').val(iface.ipAddress).trigger('change');
+        }
+        $('#node-config-input-secureUserId').val(userId).trigger('change');
+        $('#node-config-input-deviceAuthPassword')
+          .val(iface.deviceAuthenticationCode || '')
+          .trigger('change');
+        $('#node-config-input-userPassword').val(userPassword).trigger('change');
+        $etsStatus.text(
+          'Filled from ' + (iface.ipAddress || iface.individualAddress) +
+          ' as user_id=' + userId +
+          '. Click Update to save.',
+        );
+      });
     },
   });
 </script>
@@ -142,15 +289,70 @@
     <label for="node-config-input-heartbeatIntervalMs"><i class="fa fa-heartbeat"></i> Heartbeat (ms)</label>
     <input type="number" id="node-config-input-heartbeatIntervalMs" />
   </div>
+  <div class="form-row">
+    <label for="node-config-input-transport"><i class="fa fa-exchange"></i> Transport</label>
+    <select id="node-config-input-transport">
+      <option value="udp">UDP (default)</option>
+      <option value="tcp">TCP</option>
+    </select>
+  </div>
+
+  <hr style="margin-top:1em;margin-bottom:1em;" />
+
+  <div class="form-row">
+    <label for="node-config-input-secureEnabled"><i class="fa fa-lock"></i> Secure</label>
+    <input type="checkbox" id="node-config-input-secureEnabled" style="width:auto" />
+    <span style="color:#888;font-style:italic;margin-left:8px;">KNX/IP Secure tunneling (forces TCP)</span>
+  </div>
+  <div class="form-row knxip-secure-row">
+    <label for="knxip-ets-source"><i class="fa fa-magic"></i> Fill from</label>
+    <select id="knxip-ets-source" style="width: calc(70% - 90px);"></select>
+    <button type="button" class="red-ui-button" id="knxip-ets-fill" style="margin-left:6px;" disabled>Fill</button>
+  </div>
+  <div class="form-row knxip-secure-row knxip-secure-user-row" style="margin-top:-6px;">
+    <label for="knxip-secure-user"><i class="fa fa-users"></i> User</label>
+    <select id="knxip-secure-user" style="width: calc(70% - 90px);"></select>
+  </div>
+  <div class="form-row knxip-secure-row" style="margin-top:-6px;">
+    <label></label>
+    <span id="knxip-ets-status" style="color:#888;font-style:italic;"></span>
+  </div>
+  <div class="form-row knxip-secure-row">
+    <label for="node-config-input-secureUserId"><i class="fa fa-user"></i> User ID</label>
+    <input type="number" id="node-config-input-secureUserId" min="1" max="127" placeholder="2" />
+  </div>
+  <div class="form-row knxip-secure-row">
+    <label for="node-config-input-deviceAuthPassword"><i class="fa fa-key"></i> Device auth pw</label>
+    <input type="password" id="node-config-input-deviceAuthPassword" />
+  </div>
+  <div class="form-row knxip-secure-row">
+    <label for="node-config-input-userPassword"><i class="fa fa-key"></i> User password</label>
+    <input type="password" id="node-config-input-userPassword" />
+  </div>
 </script>
 
 <script type="text/html" data-help-name="eelectron-knxip-config">
   <p>Connection settings for a single KNX/IP gateway.</p>
-  <p>Multiple instances of this node can coexist — each holds its own UDP tunnel.</p>
+  <p>Multiple instances of this node can coexist — each holds its own tunnel.</p>
   <p>Leave <b>Local IP</b> blank to use route-back (recommended for Docker/NAT setups).</p>
   <h3>Discover</h3>
   <p>Click <b>Discover</b> to send a multicast SEARCH_REQUEST and list gateways that
   respond. Selecting one fills the Gateway IP, Port, and (if blank) Name fields.
   If you have multiple network interfaces, set the Local IP first to choose which
   one the discovery probes go out on.</p>
+  <h3>Transport</h3>
+  <p><b>UDP</b> is the classic tunneling transport. <b>TCP</b> is required for
+  KNX/IP Secure and supported by some modern interfaces for plain tunneling too.</p>
+  <h3>KNX/IP Secure</h3>
+  <p>Enable <b>Secure</b> to authenticate and encrypt the tunnel per the KNX/IP
+  Secure spec. This forces TCP. You'll need three values from ETS (Reports →
+  Project Security):</p>
+  <ul>
+    <li><b>User ID</b> — the tunnelling user index (1 is management; pick a
+    regular user 2..127 for runtime traffic).</li>
+    <li><b>Device authentication password</b> — per-device, set in ETS.</li>
+    <li><b>User password</b> — per-user, set in ETS.</li>
+  </ul>
+  <p>Passwords are stored encrypted in Node-RED's credentials file, not in the
+  flow JSON.</p>
 </script>

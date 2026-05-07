@@ -88,7 +88,14 @@ export = function (RED: NodeAPI) {
     (req, res) => {
       const MAX = 100 * 1024 * 1024;
 
-      const finish = (buf: Buffer, source: string) => {
+      // Password sources (in priority order):
+      //   - X-Knxproj-Password HTTP header (octet-stream path; never logged)
+      //   - JSON body field `password` (base64 path)
+      // Both are kept out of any log line.
+      const headerPwdRaw = (req.headers as Record<string, unknown>)['x-knxproj-password'];
+      const headerPwd = typeof headerPwdRaw === 'string' ? headerPwdRaw : '';
+
+      const finish = (buf: Buffer, source: string, password: string) => {
         const log = RED.log;
         if (buf.length === 0) {
           log.warn(`[knxip] /parse-knxproj: empty body via ${source}`);
@@ -96,36 +103,56 @@ export = function (RED: NodeAPI) {
           return;
         }
         log.info(
-          `[knxip] /parse-knxproj: ${buf.length} bytes via ${source}`,
+          `[knxip] /parse-knxproj: ${buf.length} bytes via ${source}${password ? ' (with password)' : ''}`,
         );
         try {
-          const result = parseKnxproj(buf);
+          const result = parseKnxproj(buf, password ? { password } : {});
           log.info(
             `[knxip] /parse-knxproj: parsed ${result.groupAddresses.length} GAs from "${result.projectName ?? '?'}"`,
           );
           res.json(result);
         } catch (err) {
-          log.warn(`[knxip] /parse-knxproj: ${(err as Error).message}`);
-          res.status(400).json({ error: (err as Error).message });
+          const e = err as { code?: string; message?: string };
+          // Surface specific encryption errors to the editor so it can show a
+          // password field / "wrong password" hint without losing detail.
+          if (e.code === 'PASSWORD_REQUIRED') {
+            log.info('[knxip] /parse-knxproj: encrypted, password required');
+            res.status(401).json({ error: e.message ?? 'password required', code: 'PASSWORD_REQUIRED' });
+            return;
+          }
+          if (e.code === 'BAD_PASSWORD') {
+            log.info('[knxip] /parse-knxproj: bad password');
+            res.status(403).json({ error: e.message ?? 'bad password', code: 'BAD_PASSWORD' });
+            return;
+          }
+          if (e.code === 'AES_NOT_SUPPORTED') {
+            log.warn('[knxip] /parse-knxproj: AES encryption not supported');
+            res.status(501).json({ error: e.message ?? 'AES not supported', code: 'AES_NOT_SUPPORTED' });
+            return;
+          }
+          log.warn(`[knxip] /parse-knxproj: ${e.message ?? 'parse failed'}`);
+          res.status(400).json({ error: e.message ?? 'parse failed' });
         }
       };
 
       // Path 1: middleware already populated req.body as a Buffer.
       const body = (req as { body?: unknown }).body;
       if (Buffer.isBuffer(body) && body.length > 0) {
-        finish(body, 'pre-parsed Buffer');
+        finish(body, 'pre-parsed Buffer', headerPwd);
         return;
       }
-      // Path 2: middleware parsed JSON with a base64 field.
+      // Path 2: middleware parsed JSON with a base64 field (and optional password).
       if (
         body &&
         typeof body === 'object' &&
         typeof (body as { fileBase64?: unknown }).fileBase64 === 'string'
       ) {
-        const b64 = (body as { fileBase64: string }).fileBase64;
+        const obj = body as { fileBase64: string; password?: unknown };
+        const password =
+          typeof obj.password === 'string' && obj.password ? obj.password : headerPwd;
         try {
-          const decoded = Buffer.from(b64, 'base64');
-          finish(decoded, `JSON.fileBase64 (${b64.length} chars)`);
+          const decoded = Buffer.from(obj.fileBase64, 'base64');
+          finish(decoded, `JSON.fileBase64 (${obj.fileBase64.length} chars)`, password);
         } catch (err) {
           res.status(400).json({ error: `bad base64: ${(err as Error).message}` });
         }
@@ -150,11 +177,35 @@ export = function (RED: NodeAPI) {
       });
       req.on('end', () => {
         if (aborted || res.headersSent) return;
-        finish(Buffer.concat(chunks), 'raw stream');
+        finish(Buffer.concat(chunks), 'raw stream', headerPwd);
       });
       req.on('error', (err: Error) => {
         if (!res.headersSent) res.status(500).json({ error: err.message });
       });
+    },
+  );
+
+  // Admin endpoint: surface the per-device Secure credentials extracted from
+  // a .knxproj. Used by the tunnel-config editor's "Fill from ETS project"
+  // button. Returns plaintext passwords — gated on flows.write since the
+  // editor can already read all credentials anyway.
+  RED.httpAdmin.get(
+    '/eelectron-knxip-ets-config/:id/secure-info',
+    RED.auth.needsPermission('flows.write'),
+    (req, res) => {
+      const rawId = req.params.id;
+      const id =
+        typeof rawId === 'string'
+          ? rawId
+          : Array.isArray(rawId)
+            ? String(rawId[0] ?? '')
+            : '';
+      const node = RED.nodes.getNode(id) as unknown as KnxEtsConfigNode | null;
+      if (!node) {
+        res.status(404).json({ error: 'ETS config not found' });
+        return;
+      }
+      res.json({ secureInterfaces: node.secureInterfaces ?? [] });
     },
   );
 
@@ -164,6 +215,25 @@ export = function (RED: NodeAPI) {
     const map = new ETSProjectMap();
     self.map = map;
     self.entryCount = 0;
+    self.secureInterfaces = [];
+
+    const creds = ((self as unknown as { credentials?: { knxprojSecureInfo?: string } })
+      .credentials ?? {}) as { knxprojSecureInfo?: string };
+    if (creds.knxprojSecureInfo && creds.knxprojSecureInfo.trim()) {
+      try {
+        const parsed = JSON.parse(creds.knxprojSecureInfo) as unknown;
+        if (Array.isArray(parsed)) {
+          self.secureInterfaces = parsed as KnxEtsConfigNode['secureInterfaces'];
+          self.log(
+            `[knxip] loaded ${self.secureInterfaces.length} secure interface(s) from credentials`,
+          );
+        }
+      } catch (err) {
+        self.warn(
+          `[knxip] could not parse stored secure credentials: ${(err as Error).message}`,
+        );
+      }
+    }
 
     const finishLoad = (
       label: string,
@@ -212,5 +282,13 @@ export = function (RED: NodeAPI) {
   RED.nodes.registerType(
     'eelectron-knxip-ets-config',
     EtsConfigCtor as unknown as () => void,
+    {
+      credentials: {
+        // JSON-stringified KnxprojSecureInterface[]. Stored as a 'text'
+        // credential so Node-RED encrypts it at rest in the credentials file
+        // — keeps it out of flows.json where it would be readable plaintext.
+        knxprojSecureInfo: { type: 'text' },
+      },
+    },
   );
 };

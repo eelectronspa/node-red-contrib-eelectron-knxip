@@ -31,7 +31,7 @@ import { CRI } from '../core/cri';
 import { GroupAddress, type GroupAddressInput } from '../core/address';
 import { HPAI } from '../core/hpai';
 import { KNXIPFrame } from '../core/knxipFrame';
-import { ConnectionType, ErrorCode, errorCodeName } from '../core/serviceTypes';
+import { ConnectionType, ErrorCode, HostProtocol, errorCodeName } from '../core/serviceTypes';
 import { defaultTpci } from '../core/telegram';
 import {
   AUTO_RECONNECT_WAIT_MS,
@@ -42,10 +42,27 @@ import {
   KNX_PORT,
   TUNNELLING_REQUEST_TIMEOUT_MS,
 } from './const';
+import { SecureSession } from './secureSession';
 import { SerialQueue } from './serialQueue';
+import { TcpTransport } from './tcpTransport';
+import type { Transport } from './transport';
 import { type SocketAddress, UdpTransport } from './udpTransport';
 
 export type TunnelState = 'disconnected' | 'connecting' | 'connected' | 'disconnecting';
+
+export interface SecureTunnelOptions {
+  /** Tunnelling user ID (1..127). User 1 is "management" — usually a regular
+   *  user (2..127) is what you configure for runtime traffic. */
+  userId: number;
+  /** Plaintext device authentication password. */
+  deviceAuthPassword: string;
+  /** Plaintext user password. */
+  userPassword: string;
+  /** Optional uint48 sender serial number. Default uses a fixed identifier. */
+  serialNumber?: number;
+  /** Optional uint16 message tag. Default 0. */
+  messageTag?: number;
+}
 
 export interface TunnelClientOptions {
   gatewayIp: string;
@@ -63,6 +80,17 @@ export interface TunnelClientOptions {
   autoReconnectWaitMs?: number;
   /** Heartbeat cadence. Default: 20000 ms (tighter than xknx). */
   heartbeatIntervalMs?: number;
+  /**
+   * Transport mode. Defaults to `'udp'`. KNX/IP Secure tunneling requires
+   * TCP per spec, so `secure: {...}` will force TCP regardless of this value.
+   */
+  transport?: 'udp' | 'tcp';
+  /**
+   * KNX/IP Secure credentials. When set, the tunnel runs over TCP and every
+   * frame is wrapped in a SECURE_WRAPPER body. When omitted, classic UDP
+   * tunneling is used.
+   */
+  secure?: SecureTunnelOptions;
   /** Logger sink. Defaults to no-op. */
   logger?: TunnelLogger;
 }
@@ -136,7 +164,7 @@ export class TunnelClient extends EventEmitter {
   private readonly _logger: Required<TunnelLogger>;
 
   private _state: TunnelState = 'disconnected';
-  private _transport: UdpTransport | null = null;
+  private _transport: Transport | null = null;
   private _channelId: number | null = null;
   private _localHpai: HPAI = HPAI.routeBack();
   /** Where to send TUNNELLING_REQUESTs (null = back to gatewayIp:gatewayPort). */
@@ -158,11 +186,11 @@ export class TunnelClient extends EventEmitter {
   private readonly _sendQueue = new SerialQueue();
 
   /** Tunnel-builder transport factory (overridable for tests). */
-  private readonly _transportFactory: (opts: TunnelClientOptions) => UdpTransport;
+  private readonly _transportFactory: (opts: TunnelClientOptions) => Transport;
 
   constructor(
     opts: TunnelClientOptions,
-    transportFactory: (opts: TunnelClientOptions) => UdpTransport = defaultTransportFactory,
+    transportFactory: (opts: TunnelClientOptions) => Transport = defaultTransportFactory,
   ) {
     super();
     this._opts = {
@@ -366,9 +394,17 @@ export class TunnelClient extends EventEmitter {
     this._transport = transport;
 
     const useRouteBack = this._opts.routeBack ?? !this._opts.localIp;
+    // Pick the HPAI host-protocol byte to match the transport. Secure runs
+    // exclusively over TCP; classic tunneling can run on either, but the
+    // gateway expects the HPAI's protocol byte to match the actual socket
+    // type or it silently drops the frame.
+    const hpaiProto =
+      this._opts.secure !== undefined || this._opts.transport === 'tcp'
+        ? HostProtocol.IPV4_TCP
+        : HostProtocol.IPV4_UDP;
     this._localHpai = useRouteBack
-      ? HPAI.routeBack()
-      : new HPAI(bound.address, bound.port);
+      ? HPAI.routeBack(hpaiProto)
+      : new HPAI(bound.address, bound.port, hpaiProto);
   }
 
   private async _teardownTransport(): Promise<void> {
@@ -786,11 +822,42 @@ function delayUnref(ms: number): Promise<void> {
   });
 }
 
-function defaultTransportFactory(opts: TunnelClientOptions): UdpTransport {
-  return new UdpTransport({
+function defaultTransportFactory(opts: TunnelClientOptions): Transport {
+  // KNX/IP Secure tunneling is TCP-only per spec. If the caller supplied
+  // secure credentials, force TCP and wrap the transport in a SecureSession.
+  const useTcp = opts.secure !== undefined || opts.transport === 'tcp';
+
+  if (!useTcp) {
+    return new UdpTransport({
+      remoteAddress: opts.gatewayIp,
+      remotePort: opts.gatewayPort ?? KNX_PORT,
+      ...(opts.localIp !== undefined ? { localAddress: opts.localIp } : {}),
+      ...(opts.localPort !== undefined ? { localPort: opts.localPort } : {}),
+    });
+  }
+
+  const tcp = new TcpTransport({
     remoteAddress: opts.gatewayIp,
     remotePort: opts.gatewayPort ?? KNX_PORT,
-    ...(opts.localIp !== undefined ? { localAddress: opts.localIp } : {}),
-    ...(opts.localPort !== undefined ? { localPort: opts.localPort } : {}),
+  });
+
+  if (!opts.secure) {
+    return tcp;
+  }
+
+  return new SecureSession(tcp, {
+    userId: opts.secure.userId,
+    deviceAuthPassword: opts.secure.deviceAuthPassword,
+    userPassword: opts.secure.userPassword,
+    ...(opts.secure.serialNumber !== undefined
+      ? { serialNumber: BigInt(opts.secure.serialNumber) }
+      : {}),
+    ...(opts.secure.messageTag !== undefined ? { messageTag: opts.secure.messageTag } : {}),
+    logger: {
+      debug: (msg) => opts.logger?.debug?.(`[secure] ${msg}`),
+      info: (msg) => opts.logger?.info?.(`[secure] ${msg}`),
+      warn: (msg) => opts.logger?.warn?.(`[secure] ${msg}`),
+      error: (msg) => opts.logger?.error?.(`[secure] ${msg}`),
+    },
   });
 }

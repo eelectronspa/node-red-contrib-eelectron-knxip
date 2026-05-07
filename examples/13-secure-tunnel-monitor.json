@@ -1,0 +1,81 @@
+[
+  {
+    "id": "ex13-tab",
+    "type": "tab",
+    "label": "KNX/IP Secure — decoded bus monitor",
+    "disabled": false,
+    "info": "Live KNX/IP **Secure** tunneling with automatic decoding via ETS.\n\n**Setup**:\n1. In an *eelectron-knxip-ets-config*, upload your `.knxproj` and unlock it with the project password. The status line will show how many *secure interfaces* were discovered.\n2. Click **Update** to save — the device-auth and per-user passwords are stored encrypted in Node-RED's credentials file (never in `flows.json`).\n3. In the *eelectron-knxip-config* (tunnel) node, tick **Secure**. In the **Fill from** dropdown pick your ETS config, then in **User** pick the tunneling slot you want, and click **Fill** — gateway IP, user ID, device-auth password, and user password fill automatically. Click Update.\n4. In the *listener* node pick this tunnel config; in the *ets* node pick the ETS config (mode `auto`).\n5. Deploy. Status node will show `connected`. Telegrams arriving on the bus appear decoded on output 1 and untranslated on output 2.\n\nKnown issue: the gateway holds one TCP slot per Secure user — if you redeploy fast it can take ~30 s for the gateway to free the previous slot."
+  },
+  {
+    "id": "ex13-status",
+    "type": "eelectron-knxip-status",
+    "z": "ex13-tab",
+    "name": "tunnel state",
+    "config": "",
+    "x": 160,
+    "y": 80,
+    "wires": [["ex13-debug-state"]]
+  },
+  {
+    "id": "ex13-debug-state",
+    "type": "debug",
+    "z": "ex13-tab",
+    "name": "state",
+    "active": true,
+    "tosidebar": true,
+    "complete": "payload",
+    "targetType": "msg",
+    "x": 360,
+    "y": 80,
+    "wires": []
+  },
+  {
+    "id": "ex13-listener",
+    "type": "eelectron-knxip-listener",
+    "z": "ex13-tab",
+    "name": "all GAs",
+    "config": "",
+    "groupAddresses": "",
+    "dpt": "",
+    "x": 160,
+    "y": 180,
+    "wires": [["ex13-ets"]]
+  },
+  {
+    "id": "ex13-ets",
+    "type": "eelectron-knxip-ets",
+    "z": "ex13-tab",
+    "name": "",
+    "config": "",
+    "mode": "auto",
+    "x": 360,
+    "y": 180,
+    "wires": [["ex13-debug-ok"], ["ex13-debug-raw"]]
+  },
+  {
+    "id": "ex13-debug-ok",
+    "type": "debug",
+    "z": "ex13-tab",
+    "name": "decoded",
+    "active": true,
+    "tosidebar": true,
+    "complete": "true",
+    "targetType": "full",
+    "x": 560,
+    "y": 140,
+    "wires": []
+  },
+  {
+    "id": "ex13-debug-raw",
+    "type": "debug",
+    "z": "ex13-tab",
+    "name": "untranslated",
+    "active": true,
+    "tosidebar": true,
+    "complete": "true",
+    "targetType": "full",
+    "x": 570,
+    "y": 220,
+    "wires": []
+  }
+]

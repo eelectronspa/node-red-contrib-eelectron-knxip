@@ -7,6 +7,7 @@
 // only types, no module-level state.
 
 import type { GroupAddressStyle } from '../../core/address';
+import type { KnxprojSecureInterface } from '../../ets/knxproj';
 import type { ETSProjectMap } from '../../ets/projectMap';
 import type { TunnelClient } from '../../io/tunnel';
 
@@ -23,4 +24,12 @@ export interface KnxConfigNode {
 export interface KnxEtsConfigNode {
   map: ETSProjectMap;
   entryCount: number;
+  /**
+   * Secure-tunneling credentials extracted from the .knxproj at upload time,
+   * if any. Held in memory only — sourced from `credentials.knxprojSecureInfo`
+   * (encrypted at rest in Node-RED's credentials file). Read by the
+   * tunnel-config editor through an admin endpoint to auto-fill the secure
+   * password fields.
+   */
+  secureInterfaces: KnxprojSecureInterface[];
 }

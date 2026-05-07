@@ -1,0 +1,252 @@
+<script type="text/javascript">
+  RED.nodes.registerType('eelectron-knxip-ets-inject', {
+    category: 'eelectron-knxip',
+    color: '#9CC78B',
+    defaults: {
+      name: { value: '' },
+      etsConfig: { value: '', type: 'eelectron-knxip-ets-config', required: true },
+      ga: { value: '' },
+      payloadJson: { value: '' },
+      repeatMs: { value: 0, validate: RED.validators.number(true) },
+      once: { value: false },
+      onceDelayMs: { value: 100, validate: RED.validators.number(true) },
+    },
+    inputs: 1,
+    outputs: 1,
+    icon: 'KNX_logo.svg',
+    paletteLabel: 'ets inject',
+    align: 'left',
+    button: {
+      enabled: function () {
+        return this.etsConfig && this.ga;
+      },
+      onclick: function () {
+        var node = this;
+        $.ajax({
+          url: 'inject/' + node.id,
+          type: 'POST',
+          success: function () {
+            RED.notify(
+              node._('inject.success', { label: node.name || node.ga }),
+              { type: 'success', id: 'inject', timeout: 1500 },
+            );
+          },
+        });
+      },
+    },
+    label: function () {
+      return this.name || (this.ga ? 'inject ' + this.ga : 'ets inject');
+    },
+    oneditprepare: function () {
+      var $ets = $('#node-input-etsConfig');
+      var $ga = $('#node-input-ga');
+      var $gaInfo = $('#ets-inject-ga-info');
+      var $payload = $('#node-input-payloadJson');
+      var $payloadHint = $('#ets-inject-payload-hint');
+      var $kindSelect = $('#ets-inject-payload-kind');
+
+      var gaCache = [];
+
+      function loadGAs(cfgId, cb) {
+        if (!cfgId) { cb([]); return; }
+        $.getJSON('eelectron-knxip-ets-config/' + cfgId + '/group-addresses', function (list) {
+          gaCache = list || [];
+          cb(gaCache);
+        }).fail(function () { gaCache = []; cb([]); });
+      }
+
+      function findEntry(ga) {
+        for (var i = 0; i < gaCache.length; i++) {
+          if (gaCache[i].ga === ga) return gaCache[i];
+        }
+        return null;
+      }
+
+      function refreshGaInfo() {
+        var ga = ($ga.val() || '').trim();
+        if (!ga) {
+          $gaInfo.text('Pick a group address from the project.');
+          $payloadHint.text('');
+          $kindSelect.val('text');
+          return;
+        }
+        var e = findEntry(ga);
+        if (!e) {
+          $gaInfo.html('<span style="color:#c33">'+ga+' is not in the ETS project.</span>');
+          $payloadHint.text('');
+          return;
+        }
+        var label = e.name || '(no name)';
+        var dpt = e.dpt || '(no DPT)';
+        $gaInfo.html('<b>'+ga+'</b> — '+ label +' &middot; DPT '+dpt);
+        suggestPayloadKindForDpt(e.dpt);
+      }
+
+      function suggestPayloadKindForDpt(dpt) {
+        if (!dpt) {
+          $payloadHint.text('Enter the value as JSON (e.g. true, 42, "hello").');
+          return;
+        }
+        var family = dpt.split('.')[0];
+        if (family === '1' || family === '2') {
+          $kindSelect.val('bool');
+          $payloadHint.text('Boolean — true / false.');
+        } else if (family === '5' || family === '6' || family === '7' || family === '8' || family === '9' || family === '12' || family === '13' || family === '14' || family === '17' || family === '20') {
+          $kindSelect.val('num');
+          $payloadHint.text('Number — for DPT 5.001 use 0..100; DPT 9.* uses floats; DPT 17.001 expects 0..63.');
+        } else if (family === '16' || family === '4') {
+          $kindSelect.val('text');
+          $payloadHint.text('Text — DPT 16 is up to 14 characters.');
+        } else if (family === '232' || family === '251') {
+          $kindSelect.val('json');
+          $payloadHint.text('Object — e.g. {"red":255,"green":128,"blue":0} or "#ff8000".');
+        } else if (family === '3' || family === '18') {
+          $kindSelect.val('json');
+          $payloadHint.text('Object — e.g. {"control":"increase","stepCode":2} or {"sceneNumber":5}.');
+        } else if (family === '10' || family === '11' || family === '19') {
+          $kindSelect.val('json');
+          $payloadHint.text('Object — e.g. {"hour":18,"minutes":30,"seconds":0}.');
+        } else {
+          $kindSelect.val('json');
+          $payloadHint.text('Enter the value as JSON.');
+        }
+      }
+
+      // Build a typeahead-style autocomplete for the GA input
+      function bindAutocomplete() {
+        $ga.autocomplete({
+          minLength: 0,
+          delay: 100,
+          source: function (req, resp) {
+            var term = (req.term || '').toLowerCase();
+            var matches = gaCache
+              .filter(function (e) {
+                return (
+                  e.ga.indexOf(term) !== -1 ||
+                  (e.name || '').toLowerCase().indexOf(term) !== -1
+                );
+              })
+              .slice(0, 100)
+              .map(function (e) {
+                var label = e.ga + ' — ' + (e.name || '(unnamed)');
+                if (e.dpt) label += ' [' + e.dpt + ']';
+                return { label: label, value: e.ga };
+              });
+            resp(matches);
+          },
+          select: function (_evt, ui) {
+            $ga.val(ui.item.value).trigger('change');
+            setTimeout(refreshGaInfo, 0);
+            return false;
+          },
+        });
+        $ga.on('focus', function () { $ga.autocomplete('search', $ga.val() || ''); });
+        $ga.on('change input', refreshGaInfo);
+      }
+
+      $ets.on('change', function () {
+        loadGAs($ets.val(), function () { bindAutocomplete(); refreshGaInfo(); });
+      });
+      // Initial load
+      loadGAs($ets.val(), function () { bindAutocomplete(); refreshGaInfo(); });
+
+      // Quick payload-kind helpers — rewrite the payloadJson field for the
+      // user, so they can pick "bool" + "true" without learning JSON quoting.
+      $('#ets-inject-payload-set-true').on('click', function (e) {
+        e.preventDefault();
+        $payload.val('true').trigger('change');
+      });
+      $('#ets-inject-payload-set-false').on('click', function (e) {
+        e.preventDefault();
+        $payload.val('false').trigger('change');
+      });
+    },
+  });
+</script>
+
+<script type="text/html" data-template-name="eelectron-knxip-ets-inject">
+  <div class="form-row">
+    <label for="node-input-name"><i class="fa fa-tag"></i> Name</label>
+    <input type="text" id="node-input-name" />
+  </div>
+  <div class="form-row">
+    <label for="node-input-etsConfig"><i class="fa fa-book"></i> ETS project</label>
+    <input type="text" id="node-input-etsConfig" />
+  </div>
+  <div class="form-row">
+    <label for="node-input-ga"><i class="fa fa-tag"></i> Group address</label>
+    <input type="text" id="node-input-ga" placeholder="type to search the ETS map" />
+  </div>
+  <div class="form-row" style="margin-top:-6px;">
+    <label></label>
+    <span id="ets-inject-ga-info" style="color:#888;font-style:italic;">Pick a group address from the project.</span>
+  </div>
+
+  <div class="form-row">
+    <label for="node-input-payloadJson"><i class="fa fa-sliders"></i> Payload</label>
+    <input type="hidden" id="ets-inject-payload-kind" value="text" />
+    <input type="text" id="node-input-payloadJson" placeholder="JSON literal — e.g. true, 42, &quot;hello&quot;, {&quot;r&quot;:255,&quot;g&quot;:0,&quot;b&quot;:0}" />
+  </div>
+  <div class="form-row" style="margin-top:-6px;">
+    <label></label>
+    <span id="ets-inject-payload-hint" style="color:#888;font-style:italic;"></span>
+    <span style="margin-left:8px;">
+      <a href="#" id="ets-inject-payload-set-true" style="margin-right:6px;">true</a>
+      <a href="#" id="ets-inject-payload-set-false">false</a>
+    </span>
+  </div>
+
+  <hr />
+  <div class="form-row">
+    <label for="node-input-repeatMs"><i class="fa fa-clock-o"></i> Repeat (ms)</label>
+    <input type="number" id="node-input-repeatMs" min="0" placeholder="0 = manual trigger only" />
+  </div>
+  <div class="form-row">
+    <label for="node-input-once"><i class="fa fa-bolt"></i> Fire on deploy</label>
+    <input type="checkbox" id="node-input-once" style="width:auto" />
+  </div>
+  <div class="form-row">
+    <label for="node-input-onceDelayMs"><i class="fa fa-clock-o"></i> Deploy delay (ms)</label>
+    <input type="number" id="node-input-onceDelayMs" min="0" />
+  </div>
+</script>
+
+<script type="text/html" data-help-name="eelectron-knxip-ets-inject">
+  <p>KNX-aware inject node. Pick a group address from the bound ETS project and
+  type the payload value as a plain JSON literal — the node emits a message that
+  drops straight into a <code>knxip writer</code>.</p>
+
+  <h3>Output shape</h3>
+  <ul>
+    <li><code>msg.topic</code> — selected GA (long form, e.g. <code>1/2/3</code>)</li>
+    <li><code>msg.payload</code> — your JSON literal (<code>true</code>, <code>42.5</code>, <code>"hello"</code>, an object, etc.)</li>
+    <li><code>msg.dpt</code> — DPT id from the ETS map (when known)</li>
+    <li><code>msg.gaName</code> — friendly name from the ETS map (when present)</li>
+  </ul>
+
+  <h3>Wiring</h3>
+  <p>The most ergonomic chain is <i>knxip ets-inject → knxip writer</i> with the
+  same ETS config bound on both. The writer reads the GA from <code>msg.topic</code>,
+  looks up the DPT, encodes <code>msg.payload</code> with the right codec, and sends
+  it to the bus — no encoder node needed in between.</p>
+
+  <h3>Triggering</h3>
+  <ul>
+    <li>Click the button on the node card to fire manually.</li>
+    <li>Set <b>Repeat (ms)</b> to a positive number to fire on a fixed interval.</li>
+    <li>Tick <b>Fire on deploy</b> to fire once shortly after the flow starts (with the configured delay).</li>
+    <li>Send any message to the input to trigger a fire (the input message is consumed; the configured payload is what's emitted).</li>
+  </ul>
+
+  <h3>Payload value tips</h3>
+  <p>The Payload field accepts JSON literals — they're parsed at fire time:</p>
+  <ul>
+    <li>DPT 1.* (boolean): <code>true</code> / <code>false</code></li>
+    <li>DPT 5/6/7/8/9/12/13/14: a number, e.g. <code>50</code> or <code>21.5</code></li>
+    <li>DPT 16 (string): <code>"hello world"</code> (with the quotes)</li>
+    <li>DPT 232 (RGB): <code>{"red":255,"green":128,"blue":0}</code> or <code>"#ff8000"</code></li>
+    <li>DPT 18 (scene): <code>{"sceneNumber":5,"control":"activate"}</code></li>
+  </ul>
+  <p>If the value isn't valid JSON it's emitted as a plain string (handy for
+  short text without quotes).</p>
+</script>

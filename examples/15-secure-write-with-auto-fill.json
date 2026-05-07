@@ -1,0 +1,73 @@
+[
+  {
+    "id": "ex15-tab",
+    "type": "tab",
+    "label": "KNX/IP Secure — write via ETS-aware inject",
+    "disabled": false,
+    "info": "Demonstrates the end-to-end Secure write path:\n\n  ets-inject (pick GA from project) → writer (auto-encodes via DPT) → tunnel-config (Secure)\n\n**Setup**:\n1. Upload your `.knxproj` to an *eelectron-knxip-ets-config*. After parse, the status line should mention *secure interface(s)*.\n2. In a *eelectron-knxip-config* tunnel node, tick **Secure**, pick the ETS config in **Fill from**, pick a tunneling user, and click **Fill** (gateway IP, user_id and the two passwords are filled from the project's keyring data; passwords go to encrypted credentials, not flow JSON).\n3. In *ets-inject*: pick the ETS config and the GA to control. Type the value in the payload field — the hint adapts to the GA's DPT (e.g. `true`/`false` for a switch GA, `0..100` for a percentage, `21.5` for a temperature).\n4. In *writer*: pick the tunnel config; leave GA and DPT empty to take them from the inject's `msg.topic` and `msg.dpt`.\n5. Deploy. Each manual fire of the inject (or its repeat schedule) will push a value through the secure tunnel."
+  },
+  {
+    "id": "ex15-status",
+    "type": "eelectron-knxip-status",
+    "z": "ex15-tab",
+    "name": "tunnel state",
+    "config": "",
+    "x": 160,
+    "y": 80,
+    "wires": [["ex15-debug-state"]]
+  },
+  {
+    "id": "ex15-debug-state",
+    "type": "debug",
+    "z": "ex15-tab",
+    "name": "state",
+    "active": true,
+    "tosidebar": true,
+    "complete": "payload",
+    "targetType": "msg",
+    "x": 360,
+    "y": 80,
+    "wires": []
+  },
+  {
+    "id": "ex15-inject",
+    "type": "eelectron-knxip-ets-inject",
+    "z": "ex15-tab",
+    "name": "trigger GA",
+    "config": "",
+    "ga": "",
+    "payload": "true",
+    "payloadType": "bool",
+    "repeat": "",
+    "once": false,
+    "onceDelay": 0.1,
+    "x": 160,
+    "y": 180,
+    "wires": [["ex15-writer", "ex15-debug-out"]]
+  },
+  {
+    "id": "ex15-writer",
+    "type": "eelectron-knxip-writer",
+    "z": "ex15-tab",
+    "name": "",
+    "config": "",
+    "groupAddress": "",
+    "dpt": "",
+    "x": 360,
+    "y": 180,
+    "wires": []
+  },
+  {
+    "id": "ex15-debug-out",
+    "type": "debug",
+    "z": "ex15-tab",
+    "name": "outgoing",
+    "active": true,
+    "tosidebar": true,
+    "complete": "true",
+    "targetType": "full",
+    "x": 360,
+    "y": 240,
+    "wires": []
+  }
+]

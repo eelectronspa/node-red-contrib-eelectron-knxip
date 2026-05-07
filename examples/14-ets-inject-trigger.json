@@ -1,0 +1,60 @@
+[
+  {
+    "id": "ex14-tab",
+    "type": "tab",
+    "label": "ETS-aware inject — trigger by GA name",
+    "disabled": false,
+    "info": "Use the *ets-inject* node to trigger flows by picking a known group address from the ETS project (instead of typing GAs by hand).\n\n**Setup**:\n1. Configure an *eelectron-knxip-ets-config* with your project (CSV or `.knxproj`).\n2. Open the *ets-inject* node, pick the ETS config, then start typing a GA or its name — the dropdown auto-completes from the project.\n3. Pick the GA you want to trigger; the DPT-aware payload hint adapts to the chosen GA's datapoint type.\n4. Optionally set Repeat / Fire-on-deploy. Click Done.\n5. Wire to a *writer* (with a tunnel config) to actually push to the bus, or just to a debug node to inspect the message.\n\nThe inject node emits `{topic, payload, dpt, gaName}`. `topic` is the GA in the format your tunnel config is set to use (`long`/`short`/`free`), and `payload` is what you typed in the inject UI."
+  },
+  {
+    "id": "ex14-comment",
+    "type": "comment",
+    "z": "ex14-tab",
+    "name": "Pick the GA inside the ets-inject node →",
+    "info": "",
+    "x": 230,
+    "y": 60,
+    "wires": []
+  },
+  {
+    "id": "ex14-inject",
+    "type": "eelectron-knxip-ets-inject",
+    "z": "ex14-tab",
+    "name": "",
+    "config": "",
+    "ga": "",
+    "payload": "",
+    "payloadType": "str",
+    "repeat": "",
+    "once": false,
+    "onceDelay": 0.1,
+    "x": 160,
+    "y": 140,
+    "wires": [["ex14-writer", "ex14-debug"]]
+  },
+  {
+    "id": "ex14-writer",
+    "type": "eelectron-knxip-writer",
+    "z": "ex14-tab",
+    "name": "",
+    "config": "",
+    "groupAddress": "",
+    "dpt": "",
+    "x": 360,
+    "y": 100,
+    "wires": []
+  },
+  {
+    "id": "ex14-debug",
+    "type": "debug",
+    "z": "ex14-tab",
+    "name": "outgoing",
+    "active": true,
+    "tosidebar": true,
+    "complete": "true",
+    "targetType": "full",
+    "x": 360,
+    "y": 180,
+    "wires": []
+  }
+]

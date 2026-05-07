@@ -4,7 +4,11 @@
 import { GroupAddress } from '../core/address';
 import { parseEtsCsv } from './csvParser';
 import { normalizeDptId } from './dptNormalize';
-import { type KnxprojGroupAddress, parseKnxproj } from './knxproj';
+import {
+  type KnxprojGroupAddress,
+  type ParseKnxprojOptions,
+  parseKnxproj,
+} from './knxproj';
 
 export interface ETSEntry {
   /** Original GA string, e.g. "1/2/3". */
@@ -78,9 +82,12 @@ export class ETSProjectMap {
     };
   }
 
-  /** Load directly from a .knxproj archive buffer. */
-  loadKnxproj(buffer: Buffer): ETSLoadResult & { projectName: string | null } {
-    const { groupAddresses, projectName, warnings } = parseKnxproj(buffer);
+  /** Load directly from a .knxproj archive buffer (optionally password-protected). */
+  loadKnxproj(
+    buffer: Buffer,
+    opts: ParseKnxprojOptions = {},
+  ): ETSLoadResult & { projectName: string | null } {
+    const { groupAddresses, projectName, warnings } = parseKnxproj(buffer, opts);
     const result = this.loadParsedEntries(groupAddresses);
     return { ...result, projectName, warnings: [...warnings, ...result.warnings] };
   }

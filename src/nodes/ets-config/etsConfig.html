@@ -7,6 +7,13 @@
       parsedEntries: { value: '' },
       source: { value: 'unknown' },
     },
+    credentials: {
+      // JSON-stringified KnxprojSecureInterface[]. Stored as a text credential
+      // so Node-RED encrypts it at rest in the credentials file rather than
+      // the plaintext flows.json. Used by the tunnel-config "Fill from ETS
+      // project" button.
+      knxprojSecureInfo: { type: 'text' },
+    },
     label: function () {
       return this.name || 'ETS project';
     },
@@ -29,6 +36,13 @@
       var $textarea = $('#node-config-input-csvData');
       var $entries = $('#node-config-input-parsedEntries');
       var $source = $('#node-config-input-source');
+      var $pwdRow = $('#ets-config-password-row');
+      var $pwd = $('#ets-config-password');
+      var $reparse = $('#ets-config-reparse');
+      // Cache the last file's bytes so the user can re-parse with a password
+      // without re-selecting the file in the OS dialog. Cleared on Clear.
+      var lastFileBuffer = null;
+      var lastFileName = null;
 
       function refreshStatus() {
         var entries = ($entries.val() || '').trim();
@@ -75,6 +89,12 @@
         $textarea.val('').trigger('change');
         $entries.val(JSON.stringify(result.groupAddresses || [])).trigger('change');
         $source.val('knxproj').trigger('change');
+        // Secure info goes into the credential-bound input; Node-RED writes it
+        // to the encrypted credentials file, never to flows.json.
+        var secInterfaces = Array.isArray(result.secureInterfaces) ? result.secureInterfaces : [];
+        $('#node-config-input-knxprojSecureInfo')
+          .val(secInterfaces.length ? JSON.stringify(secInterfaces) : '')
+          .trigger('change');
         refreshStatus();
         var pname = result.projectName ? ' "' + result.projectName + '"' : '';
         var withDpt = (result.groupAddresses || []).filter(function (e) { return e.dpt; }).length;
@@ -82,18 +102,51 @@
           'Parsed' + pname + ' — ' +
           (result.groupAddresses || []).length + ' GAs (' +
           withDpt + ' with DPT)';
+        if (secInterfaces.length) {
+          msg += ' · ' + secInterfaces.length + ' secure interface(s)';
+        }
         if ((result.warnings || []).length) {
           msg += ' · ' + result.warnings.length + ' warning(s)';
         }
         $status.text(msg + ' — click Update to save.');
       }
 
+      function handleParseError(xhr, attemptedBase64) {
+        setBusy(false);
+        var code = xhr.responseJSON && xhr.responseJSON.code;
+        var detail = xhr.responseJSON && xhr.responseJSON.error;
+        if (code === 'PASSWORD_REQUIRED') {
+          $pwdRow.show();
+          $reparse.show();
+          $status.text('This .knxproj is password-protected. Enter the project password below and click Re-parse.');
+          $pwd.trigger('focus');
+          return;
+        }
+        if (code === 'BAD_PASSWORD') {
+          $pwdRow.show();
+          $reparse.show();
+          $status.text('Incorrect password — try again and click Re-parse.');
+          $pwd.trigger('focus').trigger('select');
+          return;
+        }
+        if (code === 'AES_NOT_SUPPORTED') {
+          $status.text(detail || 'WinZip AES encryption is not supported in this version.');
+          return;
+        }
+        var msg = 'Parse failed (HTTP ' + xhr.status + ')';
+        if (detail) msg += ': ' + detail;
+        if (attemptedBase64) msg += ' (base64 fallback also failed)';
+        $status.text(msg);
+      }
+
       function uploadBinary(arrayBuffer, fallbackToBase64) {
+        var password = ($pwd.val() || '');
         var blob = new Blob([arrayBuffer], { type: 'application/octet-stream' });
         console.log(
           '[knxip] uploading .knxproj as octet-stream:',
           arrayBuffer.byteLength,
-          'bytes',
+          'bytes,',
+          password ? 'with password' : 'no password',
         );
         return $.ajax({
           url: 'eelectron-knxip-ets-config/parse-knxproj',
@@ -101,10 +154,14 @@
           data: blob,
           contentType: 'application/octet-stream',
           processData: false,
+          headers: password ? { 'X-Knxproj-Password': password } : {},
         })
           .done(function (result) {
             console.log('[knxip] parse-knxproj OK', result);
             setBusy(false);
+            // Clear the password from the field once it's served its purpose;
+            // it isn't saved with the node config.
+            $pwd.val('');
             applyParseResult(result);
           })
           .fail(function (xhr) {
@@ -113,18 +170,29 @@
               xhr.status,
               xhr.responseText,
             );
-            if (fallbackToBase64) {
+            // Don't fall back to base64 for encryption errors — same answer
+            // either path.
+            var code = xhr.responseJSON && xhr.responseJSON.code;
+            if (
+              fallbackToBase64 &&
+              code !== 'PASSWORD_REQUIRED' &&
+              code !== 'BAD_PASSWORD' &&
+              code !== 'AES_NOT_SUPPORTED'
+            ) {
               console.log('[knxip] retrying as base64 JSON');
               var b64 = arrayBufferToBase64(arrayBuffer);
+              var jsonBody = { fileBase64: b64 };
+              if (password) jsonBody.password = password;
               $.ajax({
                 url: 'eelectron-knxip-ets-config/parse-knxproj',
                 type: 'POST',
-                data: JSON.stringify({ fileBase64: b64 }),
+                data: JSON.stringify(jsonBody),
                 contentType: 'application/json',
               })
                 .done(function (result) {
                   console.log('[knxip] parse-knxproj OK (base64)', result);
                   setBusy(false);
+                  $pwd.val('');
                   applyParseResult(result);
                 })
                 .fail(function (xhr2) {
@@ -133,20 +201,10 @@
                     xhr2.status,
                     xhr2.responseText,
                   );
-                  setBusy(false);
-                  var msg = 'Parse failed (HTTP ' + xhr2.status + ')';
-                  if (xhr2.responseJSON && xhr2.responseJSON.error) {
-                    msg += ': ' + xhr2.responseJSON.error;
-                  }
-                  $status.text(msg);
+                  handleParseError(xhr2, true);
                 });
             } else {
-              setBusy(false);
-              var msg = 'Parse failed (HTTP ' + xhr.status + ')';
-              if (xhr.responseJSON && xhr.responseJSON.error) {
-                msg += ': ' + xhr.responseJSON.error;
-              }
-              $status.text(msg);
+              handleParseError(xhr, false);
             }
           });
       }
@@ -161,7 +219,12 @@
         if (isKnxproj) {
           setBusy(true, 'Reading and parsing .knxproj…');
           var fr = new FileReader();
-          fr.onload = function (ev) { uploadBinary(ev.target.result, true); };
+          fr.onload = function (ev) {
+            // Cache for re-parse with password attempts.
+            lastFileBuffer = ev.target.result;
+            lastFileName = file.name;
+            uploadBinary(ev.target.result, true);
+          };
           fr.onerror = function () {
             setBusy(false);
             $status.text('Could not read file');
@@ -171,6 +234,8 @@
         }
 
         // CSV path — read as text, fill the textarea, clear any pre-parsed entries.
+        lastFileBuffer = null;
+        lastFileName = null;
         var reader = new FileReader();
         reader.onload = function (e) {
           $textarea.val(e.target.result).trigger('change');
@@ -181,11 +246,34 @@
         reader.readAsText(file);
       });
 
+      $reparse.on('click', function () {
+        if (!lastFileBuffer) {
+          $status.text('Re-select the .knxproj file first.');
+          return;
+        }
+        setBusy(true, 'Re-parsing ' + (lastFileName || '.knxproj') + '…');
+        uploadBinary(lastFileBuffer, true);
+      });
+
+      // Pressing Enter in the password field triggers a re-parse.
+      $pwd.on('keydown', function (e) {
+        if (e.which === 13) {
+          e.preventDefault();
+          $reparse.trigger('click');
+        }
+      });
+
       $clear.on('click', function () {
         $textarea.val('').trigger('change');
         $entries.val('').trigger('change');
         $source.val('unknown').trigger('change');
+        $('#node-config-input-knxprojSecureInfo').val('').trigger('change');
         $file.val('');
+        $pwd.val('');
+        $pwdRow.hide();
+        $reparse.hide();
+        lastFileBuffer = null;
+        lastFileName = null;
         refreshStatus();
       });
 
@@ -211,6 +299,12 @@
     <input type="file" id="ets-config-file" accept=".csv,.txt,.knxproj" style="width:auto;" />
     <button type="button" class="red-ui-button" id="ets-config-clear" style="margin-left:6px;">Clear</button>
   </div>
+  <div class="form-row" id="ets-config-password-row" style="margin-top:-6px; display:none;">
+    <label for="ets-config-password"><i class="fa fa-lock"></i> Project password</label>
+    <input type="password" id="ets-config-password" autocomplete="off"
+           style="width: calc(70% - 90px);" placeholder="ETS project password" />
+    <button type="button" class="red-ui-button" id="ets-config-reparse" style="margin-left:6px; display:none;">Re-parse</button>
+  </div>
   <div class="form-row" style="margin-top:-6px;">
     <label></label>
     <span id="ets-config-status" style="color:#888;font-style:italic;">No project data loaded</span>
@@ -224,6 +318,7 @@
   </div>
   <input type="hidden" id="node-config-input-parsedEntries" />
   <input type="hidden" id="node-config-input-source" />
+  <input type="hidden" id="node-config-input-knxprojSecureInfo" />
 </script>
 
 <script type="text/html" data-help-name="eelectron-knxip-ets-config">
@@ -239,8 +334,10 @@
     <li><b>.knxproj archive</b> — the full ETS6 project file. Uploaded files are
       parsed on the Node-RED server and only the extracted GA list is stored in
       the flow (the raw archive isn't kept in <code>flows.json</code>).
-      Password-protected exports aren't supported in this version — re-export
-      without a password.</li>
+      Password-protected projects are supported when they use ZipCrypto encryption:
+      if the parser detects encryption, a password field appears below the
+      uploader; type the password and click <b>Re-parse</b>. Passwords are not
+      saved with the node config.</li>
   </ul>
   <p>Reference this config from any of:</p>
   <ul>

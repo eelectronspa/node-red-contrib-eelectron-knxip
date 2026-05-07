@@ -6,7 +6,7 @@
 
 import { CouldNotParseKNXIP } from '../errors';
 import { HPAI } from '../hpai';
-import { ServiceType } from '../serviceTypes';
+import { HostProtocol, ServiceType } from '../serviceTypes';
 
 export const X25519_PUBLIC_KEY_LEN = 32;
 
@@ -25,7 +25,11 @@ export class SessionRequest {
     if (init.publicKey.length !== X25519_PUBLIC_KEY_LEN) {
       throw new RangeError(`SESSION_REQUEST publicKey must be ${X25519_PUBLIC_KEY_LEN} bytes`);
     }
-    this.controlEndpoint = init.controlEndpoint ?? HPAI.routeBack();
+    // SESSION_REQUEST is only sent over TCP (KNX/IP Secure §2.5.4), so the
+    // HPAI must declare the TCP host protocol — many gateways silently drop
+    // a SESSION_REQUEST whose HPAI says UDP.
+    this.controlEndpoint =
+      init.controlEndpoint ?? HPAI.routeBack(HostProtocol.IPV4_TCP);
     this.publicKey = init.publicKey;
   }
 

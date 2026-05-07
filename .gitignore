@@ -9,3 +9,15 @@ coverage/
 reference/
 .claude
 *.knxproj
+scripts/smoke-secure.mjs
+scripts/inspect-knxproj-keys.mjs
+scripts/inspect-secure-info.mjs
+scripts/probe-secure-raw.mjs
+scripts/probe-secure-full.mjs
+scripts/decrypt-wrapper.mjs
+scripts/verify-spec-vectors.mjs
+scripts/decrypt-knxkeys.mjs
+scripts/dbg-parse.mjs
+*.knxkeys
+*.pcap
+*.pcapng
