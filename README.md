@@ -21,7 +21,7 @@ Whether you are building a simple light-control flow or a full KNX automation da
 | Feature | Description |
 |---|---|
 | 🧱 Stable tunnel client | Clean connection state machine, heartbeat, auto-reconnect, duplicate suppression, and safe multi-tunnel usage. |
-| 🔐 KNX/IP Secure | Secure tunneling over TCP with X25519 ECDH, AES-CMAC, and AES-CCM. Verified end-to-end against real KNX/IP interfaces. |
+| 🔐 KNX/IP Secure | Secure tunneling over TCP with X25519 ECDH, AES-CBC-MAC, and AES-CCM. Verified end-to-end against real KNX/IP interfaces. |
 | 📡 Live bus monitor | Real-time telegram stream directly inside the Node-RED editor sidebar. |
 | 🧠 ETS-aware encoding | Load a CSV or `.knxproj` and let listener, writer, inject, and monitor nodes auto-pick the correct DPT codec. |
 | 🔎 Gateway discovery | Discover KNX/IP interfaces on your LAN from the tunnel-config dialog. |
@@ -35,8 +35,8 @@ Whether you are building a simple light-control flow or a full KNX automation da
 This package supports **KNX/IP Secure tunneling over TCP** with the full secure handshake flow:
 
 - X25519 ECDH key exchange
-- AES-CMAC authentication
-- AES-CCM encrypted communication
+- AES-CBC-MAC authentication (the MAC algorithm KNX/IP Secure §4.5 specifies)
+- AES-CCM (CTR + CBC-MAC) encrypted communication
 - Secure credential handling
 - ETS project password support
 - Per-user password extraction from `.knxproj`
