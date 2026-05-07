@@ -154,8 +154,13 @@ The codec library supports the following DPT families:
 ```txt
 DPT 1, 2, 3, 4, 5, 6, 7, 8, 9,
 10, 11, 12, 13, 14, 16, 17, 18,
-19, 20, 232, 235, 251
+19, 20, 26, 28, 29, 232, 235, 251
 ```
+
+158+ specific sub-types registered across those families (boolean / step
+/ scaled / raw integers / KNX 2-byte float / IEEE float / time / date /
+date+time / strings / scene info / scene control / energy + tariff /
+RGB / RGBW / 64-bit energy totals / UTF-8).
 
 These cover:
 

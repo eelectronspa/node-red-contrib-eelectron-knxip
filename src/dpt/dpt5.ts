@@ -74,4 +74,5 @@ registerDpt(makeScaledCodec({ id: '5.001', name: 'percent', unit: '%', max: 100 
 registerDpt(makeScaledCodec({ id: '5.003', name: 'angle', unit: '°', max: 360 }));
 registerDpt(makeRawCodec('5.004', 'percent_u8', '%'));
 registerDpt(makeRawCodec('5.005', 'decimal_factor'));
+registerDpt(makeRawCodec('5.006', 'tariff'));
 registerDpt(makeRawCodec('5.010', 'counter_pulses'));

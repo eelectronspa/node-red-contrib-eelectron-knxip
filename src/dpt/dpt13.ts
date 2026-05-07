@@ -38,4 +38,5 @@ registerDpt(makeInt32('13.012', 'reactive_energy', 'VARh'));
 registerDpt(makeInt32('13.013', 'active_energy_kwh', 'kWh'));
 registerDpt(makeInt32('13.014', 'apparant_energy_kvah', 'kVAh'));
 registerDpt(makeInt32('13.015', 'reactive_energy_kvarh', 'kVARh'));
+registerDpt(makeInt32('13.016', 'active_energy_mwh', 'MWh'));
 registerDpt(makeInt32('13.100', 'long_delta_time_sec', 's'));

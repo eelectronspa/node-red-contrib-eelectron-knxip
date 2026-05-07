@@ -3,6 +3,20 @@
 All notable user-facing changes are documented here. Entries follow the
 "keep a changelog" style with semantic versioning.
 
+## [0.8.2] — 2026-05-07
+
+### Added
+- **More DPT subtypes and families.** New families: **DPT 26** (scene
+  info, 1-byte combined active+number), **DPT 28** (UTF-8 string,
+  variable length, NUL-terminated), **DPT 29** (8-byte signed integer
+  for high-precision active/apparent/reactive energy totals, BigInt
+  values). Plus ~25 new subtypes filling in DPT 5/8/9/13/14 (`5.006`
+  tariff, `8.003`/`.004` delta-time, `8.012` length, several `9.x`
+  meteorological and engineering units, `13.016` active-energy MWh,
+  ~15 new `14.x` engineering subtypes including `14.058` pressure and
+  `14.069` temperature_K). 158 specific DPT IDs are now registered
+  across 25 families.
+
 ## [0.8.1] — 2026-05-07
 
 ### Added
