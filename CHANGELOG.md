@@ -3,6 +3,43 @@
 All notable user-facing changes are documented here. Entries follow the
 "keep a changelog" style with semantic versioning.
 
+## [0.8.1] — 2026-05-07
+
+### Added
+- **Live bus-monitor sidebar** — new "KNX/IP" tab on the editor's
+  right-hand sidebar streams every received telegram over Server-Sent
+  Events and renders them in a scrolling table. Decodes values against
+  any loaded ETS project (with units), and exposes a free-text filter
+  matching across GA, source IA, name, DPT, hex, and decoded value.
+
+  ![Group monitor](images/group-monitor.png)
+
+- Two sidebar-icon assets (`sidebar-logo-small-light.svg` /
+  `-dark.svg`) for the new tab.
+
+### Fixed
+- Inbound `TUNNELLING_REQUEST` sequence counter is now ignored over TCP
+  (spec §4.4). Used to gate every telegram after the first as a
+  duplicate, so only the first telegram surfaced. Outbound requests
+  also hold seq=0 over TCP, matching the same spec section.
+- `DISCONNECT_REQUEST` no longer holds shutdown for a 10 s timeout —
+  races the response against transport-close and uses a tighter 3 s
+  ceiling on TCP, since most gateways disconnect by simply closing
+  the socket without sending a response.
+- Object-valued DPTs (DPT 10 Time, DPT 11 Date, …) render as JSON in
+  the bus monitor instead of the useless `[object Object]`.
+- GA + name copy as a single line with a real space separator
+  (`"1/1/29 Time"` rather than `"1/1/29Time"`).
+- Removed a stray green panel rect from `KNX_logo.svg` that bled through
+  on dark themes.
+
+### Other
+- Tunnel-config dialog status / ETS parse toast text now reads
+  **"Click Update/Add"** to match Node-RED's button labels (the button
+  says *Add* for a new node and *Update* for an existing one).
+- `images/` and `CHANGELOG.md` added to the npm `files` allowlist so
+  the README screenshot and changelog ship on the registry too.
+
 ## [0.8.0] — 2026-05-07
 
 ### Added
@@ -22,13 +59,6 @@ All notable user-facing changes are documented here. Entries follow the
 - **`eelectron-knxip-ets-inject`** — new inject node with a GA picker
   populated from the bound ETS config. Payload hint adapts to the
   selected GA's DPT family.
-- **Live bus-monitor sidebar** — new "KNX/IP" tab on the editor's
-  right-hand sidebar streams every received telegram over Server-Sent
-  Events and renders them in a scrolling table. Decodes values against
-  any loaded ETS project (with units) and exposes a free-text filter
-  (matches GA, source IA, name, DPT, hex, decoded value).
-
-  ![Group monitor](images/group-monitor.png)
 
 ### Fixed
 - `SESSION_AUTHENTICATE` is now wrapped in a `SECURE_WRAPPER` per spec
@@ -37,21 +67,6 @@ All notable user-facing changes are documented here. Entries follow the
 - `SESSION_REQUEST` and post-auth `CONNECT_REQUEST` now use the TCP host
   protocol byte (`0x02`) in their HPAIs instead of UDP — gateways
   silently dropped the previous frames.
-- Inbound `TUNNELLING_REQUEST` sequence counter is now ignored over TCP
-  (spec §4.4). Used to gate every telegram after the first as a
-  duplicate, so only the first telegram surfaced in the bus.
-- `DISCONNECT_REQUEST` no longer holds shutdown for a 10 s timeout —
-  races the response against transport-close and uses a tighter 3 s
-  ceiling on TCP, since most gateways disconnect by closing the socket
-  without sending a response.
-
-### Other
-- Dialog status / toast text now reads **"Click Update/Add"** to match
-  Node-RED's button labels (the button says *Add* for a new node and
-  *Update* for an existing one).
-- Two new sidebar-icon assets (`sidebar-logo-small-light.svg` /
-  `-dark.svg`) for the bus-monitor tab. The tab uses the dark glyph by
-  default; swap to the white variant manually if your theme needs it.
 
 ## Earlier releases
 
