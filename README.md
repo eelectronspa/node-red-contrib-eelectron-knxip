@@ -4,6 +4,13 @@
 
 ![KNX/IP bus monitor sidebar](images/group-monitor.png)
 
+Multi-tunnel safe out of the box — every config node owns its own socket
+and sequence counters, so several KNX/IP gateways can run side-by-side
+without interference. The bus monitor and the per-tunnel diagnostics strip
+make this visible at a glance:
+
+![Multiple KNX/IP tunnels in one Node-RED](images/multi-tunnelling.png)
+
 ---
 
 ## 🚀 What is it?
@@ -22,7 +29,7 @@ Whether you are building a simple light-control flow or a full KNX automation da
 |---|---|
 | 🧱 Stable tunnel client | Clean connection state machine, heartbeat, auto-reconnect, duplicate suppression, and safe multi-tunnel usage. |
 | 🔐 KNX/IP Secure | Secure tunneling over TCP with X25519 ECDH, AES-CBC-MAC, and AES-CCM. Verified end-to-end against real KNX/IP interfaces. |
-| 📡 Live bus monitor | Real-time telegram stream directly inside the Node-RED editor sidebar. |
+| 📡 Live bus monitor | Real-time telegram stream directly inside the Node-RED editor sidebar, with per-tunnel diagnostics (TX / RX / heartbeat / reconnect counters, idle time, uptime). |
 | 🧠 ETS-aware encoding | Load a CSV or `.knxproj` and let listener, writer, inject, and monitor nodes auto-pick the correct DPT codec. |
 | 🔎 Gateway discovery | Discover KNX/IP interfaces on your LAN from the tunnel-config dialog. |
 | ⚡ Editor autocomplete | Group address and DPT fields suggest values from your bound ETS project and codec registry. |
@@ -99,6 +106,9 @@ Once loaded, the ETS map powers:
 - Group address autocomplete
 - DPT autocomplete
 - Secure interface discovery and credential autofill
+- One-click *Generate starter flow* — drops a tab populated with a
+  shared listener+debug, a shared writer, and one inject per GA
+  pre-filled with the GA, ready for test writes
 
 ---
 
@@ -144,6 +154,11 @@ The `eelectron-knxip-ets` node has two outputs:
 | `eelectron-knxip-state-store` | Caches the last value per group address. Query with `msg.action = 'get'`, `'list'`, or `'clear'`. |
 | `eelectron-knxip-scene` | Typed encoder for DPT `17.001` and `18.001`. Supports scene number, activate, and learn. |
 | `eelectron-knxip-color` | Typed encoder for DPT `232.600` RGB and DPT `251.600` RGBW. Accepts hex, `rgb()`, `rgba()`, or color objects. |
+| `eelectron-knxip-watchdog` | Watches a list of GAs and emits an `alarm` message when one has been silent longer than the configured timeout, and a `recovery` message when it speaks again. Use it for HVAC sensors, presence detectors, weather feeds, or any GA that should publish on a predictable cadence. |
+| `eelectron-knxip-dedupe` | Drops repeat `(topic, payload)` pairs within a configurable window. Useful for cleaning a noisy listener and breaking write → listener feedback loops. |
+| `eelectron-knxip-rate-limit` | Caps msgs/window per topic so a runaway flow can't storm the bus. Drops excess by default; optional second output exposes the dropped messages for logging or alarming. |
+| `eelectron-knxip-schedule` | Fires a configured payload to a chosen GA on a cron expression (5-field, with `*`, ranges, lists, and steps) or an interval. Output shape matches `ets-inject` so it pipes directly into a writer with the same ETS config. |
+| `eelectron-knxip-mqtt-publish` | KNX → MQTT bridge: filters listener output by ETS-project membership, renders configurable topic + payload templates (`{ga}`, `{gaName}`, `{dpt}`, `{source}`, `{ts}`, `{value}`), strips internals, drops in front of any `mqtt out`. |
 
 ---
 
@@ -215,6 +230,10 @@ Available examples:
 | 13 | KNX/IP Secure tunnel with decoded bus monitor |
 | 14 | ETS-aware inject node |
 | 15 | Secure write through ETS-inject and writer |
+| 16 | Watchdog — alarm on a stale sensor |
+| 17 | Dedupe + rate-limit (clean stream + outbound throttle) |
+| 18 | Scheduled KNX write (cron + interval) |
+| 19 | KNX → MQTT bridge (filtered by ETS project) |
 
 ---
 

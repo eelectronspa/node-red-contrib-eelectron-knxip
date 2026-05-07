@@ -21,3 +21,8 @@ scripts/dbg-parse.mjs
 *.knxkeys
 *.pcap
 *.pcapng
+# Ad-hoc paste-buffer screenshots dropped at the repo root during dev
+# review; only `images/*` is the curated location for committed images.
+/image.png
+/image-*.png
+/Pasted*.png

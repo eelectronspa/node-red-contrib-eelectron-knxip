@@ -1,6 +1,6 @@
 {
   "name": "node-red-contrib-eelectron-knxip",
-  "version": "0.8.2",
+  "version": "0.9.0",
   "description": "Stable Node-RED nodes for KNX/IP — UDP tunnelling, KNX IP Secure tunnelling over TCP, ETS-driven DPT auto-encoding, gateway discovery, and typed convenience encoders.",
   "author": "Jamel Nacef <jamel.nacef@eelectron.com>",
   "license": "Apache-2.0",
@@ -46,7 +46,12 @@
       "eelectron-knxip-state-store": "dist/nodes/state-store/stateStore.js",
       "eelectron-knxip-scene": "dist/nodes/scene/scene.js",
       "eelectron-knxip-color": "dist/nodes/color/color.js",
-      "eelectron-knxip-ets-inject": "dist/nodes/ets-inject/etsInject.js"
+      "eelectron-knxip-ets-inject": "dist/nodes/ets-inject/etsInject.js",
+      "eelectron-knxip-watchdog": "dist/nodes/watchdog/watchdog.js",
+      "eelectron-knxip-dedupe": "dist/nodes/dedupe/dedupe.js",
+      "eelectron-knxip-rate-limit": "dist/nodes/rate-limit/rateLimit.js",
+      "eelectron-knxip-schedule": "dist/nodes/schedule/schedule.js",
+      "eelectron-knxip-mqtt-publish": "dist/nodes/mqtt-publish/mqttPublish.js"
     }
   },
   "keywords": [

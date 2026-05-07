@@ -1,0 +1,54 @@
+[
+  {
+    "id": "ex18-tab",
+    "type": "tab",
+    "label": "KNX/IP — scheduled write",
+    "disabled": false,
+    "info": "Two flows showing the schedule node in cron and interval modes.\n\n**Cron mode** — fires at 07:00 every day with payload `true` to the chosen GA. Wire to a writer (with the same ETS config) and the value goes out automatically.\n\n**Interval mode** — fires every 60 s with payload `1`, useful for periodic refreshes / heartbeats sent onto the bus.\n\nThe schedule node emits `{ topic, payload, dpt, gaName }` — same shape as `ets-inject` — so the downstream writer auto-encodes via the GA's DPT.\n\n**Setup**:\n1. Bind both schedule nodes to your *eelectron-knxip-ets-config*.\n2. Pick the target GA in each schedule node.\n3. Wire to the *writer* (with tunnel + ETS config bound).\n4. Click the inject button next to a schedule node to test-fire without waiting for the schedule."
+  },
+  {
+    "id": "ex18-cron",
+    "type": "eelectron-knxip-schedule",
+    "z": "ex18-tab",
+    "name": "07:00 daily",
+    "etsConfig": "",
+    "ga": "",
+    "payloadJson": "true",
+    "mode": "cron",
+    "cron": "0 7 * * *",
+    "intervalSeconds": 60,
+    "fireOnDeploy": false,
+    "x": 160,
+    "y": 100,
+    "wires": [["ex18-writer"]]
+  },
+  {
+    "id": "ex18-interval",
+    "type": "eelectron-knxip-schedule",
+    "z": "ex18-tab",
+    "name": "every 60 s",
+    "etsConfig": "",
+    "ga": "",
+    "payloadJson": "1",
+    "mode": "interval",
+    "cron": "0 7 * * *",
+    "intervalSeconds": 60,
+    "fireOnDeploy": false,
+    "x": 160,
+    "y": 180,
+    "wires": [["ex18-writer"]]
+  },
+  {
+    "id": "ex18-writer",
+    "type": "eelectron-knxip-writer",
+    "z": "ex18-tab",
+    "name": "",
+    "config": "",
+    "etsConfig": "",
+    "groupAddress": "",
+    "dpt": "",
+    "x": 380,
+    "y": 140,
+    "wires": []
+  }
+]

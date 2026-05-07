@@ -1,0 +1,84 @@
+<script type="text/javascript">
+  RED.nodes.registerType('eelectron-knxip-rate-limit', {
+    category: 'eelectron-knxip',
+    color: '#9CC78B',
+    defaults: {
+      name: { value: '' },
+      maxPerWindow: { value: 5, validate: RED.validators.number() },
+      windowMs: { value: 1000, validate: RED.validators.number() },
+      perTopic: { value: true },
+      exposeDropped: { value: false },
+    },
+    inputs: 1,
+    outputs: 1,
+    icon: 'KNX_logo.svg',
+    paletteLabel: 'rate-limit',
+    align: 'left',
+    label: function () {
+      return (
+        this.name ||
+        'rate-limit ' + (this.maxPerWindow || 5) + '/' + (this.windowMs || 1000) + 'ms'
+      );
+    },
+    outputLabels: function () {
+      // Update output count when "expose dropped" toggles.
+      return this.exposeDropped ? ['passed', 'dropped'] : ['passed'];
+    },
+    oneditprepare: function () {
+      var node = this;
+      function syncOutputs() {
+        node.outputs = $('#node-input-exposeDropped').is(':checked') ? 2 : 1;
+      }
+      $('#node-input-exposeDropped').on('change', syncOutputs);
+      syncOutputs();
+    },
+  });
+</script>
+
+<script type="text/html" data-template-name="eelectron-knxip-rate-limit">
+  <div class="form-row">
+    <label for="node-input-name"><i class="fa fa-tag"></i> Name</label>
+    <input type="text" id="node-input-name" />
+  </div>
+  <div class="form-row">
+    <label for="node-input-maxPerWindow"><i class="fa fa-tachometer"></i> Max msgs</label>
+    <input type="number" id="node-input-maxPerWindow" min="1" />
+  </div>
+  <div class="form-row">
+    <label for="node-input-windowMs"><i class="fa fa-clock-o"></i> per (ms)</label>
+    <input type="number" id="node-input-windowMs" min="1" />
+  </div>
+  <div class="form-row">
+    <label for="node-input-perTopic"><i class="fa fa-list"></i> Per topic</label>
+    <input type="checkbox" id="node-input-perTopic" style="width:auto" />
+    <span style="color:#888;font-style:italic;margin-left:8px;">untick for one global bucket across all topics</span>
+  </div>
+  <div class="form-row">
+    <label for="node-input-exposeDropped"><i class="fa fa-share-alt"></i> Expose drops</label>
+    <input type="checkbox" id="node-input-exposeDropped" style="width:auto" />
+    <span style="color:#888;font-style:italic;margin-left:8px;">add a 2nd output for dropped messages</span>
+  </div>
+</script>
+
+<script type="text/html" data-help-name="eelectron-knxip-rate-limit">
+  <p>Caps the number of messages allowed through per topic in a sliding time
+  window, dropping anything in excess. Use it to stop a runaway flow loop or
+  a chatty source from storming the bus.</p>
+
+  <h3>Strategy</h3>
+  <p>Plain drop-when-over: the first <i>N</i> messages per window pass through;
+  any further messages within the same window are dropped. The window slides
+  per-topic, so a fast-moving topic doesn't block a quiet one.</p>
+
+  <h3>Outputs</h3>
+  <ul>
+    <li><b>Default</b> — single output: messages that pass through.</li>
+    <li><b>Expose drops</b> — adds a second output that emits dropped
+      messages so you can count, log, or alarm on them.</li>
+  </ul>
+
+  <h3>Tip</h3>
+  <p>For deduping repeated values, use the dedicated
+  <code>eelectron-knxip-dedupe</code> node instead — rate-limit doesn't look
+  at payload, only at arrival rate.</p>
+</script>

@@ -1,0 +1,149 @@
+<script type="text/javascript">
+  RED.nodes.registerType('eelectron-knxip-watchdog', {
+    category: 'eelectron-knxip',
+    color: '#9CC78B',
+    defaults: {
+      name: { value: '' },
+      config: { value: '', type: 'eelectron-knxip-config', required: true },
+      etsConfig: { value: '', type: 'eelectron-knxip-ets-config', required: false },
+      groupAddresses: { value: '' },
+      timeoutSeconds: { value: 300, validate: RED.validators.number() },
+      checkIntervalSeconds: { value: '', validate: RED.validators.number(true) },
+      seedOnDeploy: { value: true },
+    },
+    inputs: 0,
+    outputs: 1,
+    icon: 'KNX_logo.svg',
+    paletteLabel: 'watchdog',
+    align: 'left',
+    label: function () {
+      return this.name || 'knx watchdog';
+    },
+    oneditprepare: function () {
+      var $picker = $('#watchdog-ga-picker');
+      var $list = $('#node-input-groupAddresses');
+      var $etsCfg = $('#node-input-etsConfig');
+      var gaCache = [];
+      var gaCacheFor = '';
+      function loadGAs(cb) {
+        var cfgId = $etsCfg.val() || '';
+        if (!cfgId || cfgId === '_ADD_') { gaCache = []; gaCacheFor = ''; cb([]); return; }
+        if (gaCacheFor === cfgId) { cb(gaCache); return; }
+        $.getJSON('eelectron-knxip-ets-config/' + encodeURIComponent(cfgId) + '/group-addresses',
+          function (list) { gaCache = list || []; gaCacheFor = cfgId; cb(gaCache); })
+          .fail(function () { cb([]); });
+      }
+      $picker.autocomplete({
+        minLength: 0,
+        delay: 100,
+        source: function (req, resp) {
+          loadGAs(function (list) {
+            var term = (req.term || '').toLowerCase();
+            resp(list
+              .filter(function (e) {
+                return e.ga.indexOf(term) !== -1 ||
+                  (e.name || '').toLowerCase().indexOf(term) !== -1;
+              })
+              .slice(0, 50)
+              .map(function (e) {
+                return {
+                  label: e.ga + (e.name ? ' — ' + e.name : '') + (e.dpt ? ' [' + e.dpt + ']' : ''),
+                  value: e.ga,
+                };
+              }));
+          });
+        },
+        select: function (_evt, ui) {
+          var current = ($list.val() || '').trim();
+          var lines = current ? current.split(/\r?\n/) : [];
+          if (lines.indexOf(ui.item.value) === -1) {
+            lines.push(ui.item.value);
+            $list.val(lines.join('\n')).trigger('change');
+          }
+          setTimeout(function () { $picker.val(''); }, 0);
+          return false;
+        },
+      });
+      $picker.on('focus', function () { $picker.autocomplete('search', $picker.val() || ''); });
+      $etsCfg.on('change', function () { gaCacheFor = ''; });
+    },
+  });
+</script>
+
+<script type="text/html" data-template-name="eelectron-knxip-watchdog">
+  <div class="form-row">
+    <label for="node-input-name"><i class="fa fa-tag"></i> Name</label>
+    <input type="text" id="node-input-name" />
+  </div>
+  <div class="form-row">
+    <label for="node-input-config"><i class="fa fa-cog"></i> Tunnel</label>
+    <input type="text" id="node-input-config" />
+  </div>
+  <div class="form-row">
+    <label for="node-input-etsConfig"><i class="fa fa-book"></i> ETS project</label>
+    <input type="text" id="node-input-etsConfig" />
+  </div>
+  <div class="form-row" style="margin-bottom: 0;">
+    <label for="node-input-groupAddresses"><i class="fa fa-list"></i> Watched GAs</label>
+  </div>
+  <div class="form-row">
+    <textarea id="node-input-groupAddresses" rows="6" style="width:100%;font-family:monospace;font-size:12px;"
+              placeholder="One per line, or comma-separated. e.g.&#10;1/1/29&#10;1/2/4, 1/2/5&#10;"></textarea>
+  </div>
+  <div class="form-row" style="margin-top:-6px;">
+    <label for="watchdog-ga-picker"><i class="fa fa-search"></i> Add from ETS</label>
+    <input type="text" id="watchdog-ga-picker"
+      placeholder="type a GA or name — picks from the ETS project, appends to the list above" />
+  </div>
+  <div class="form-row">
+    <label for="node-input-timeoutSeconds"><i class="fa fa-hourglass-half"></i> Timeout (s)</label>
+    <input type="number" id="node-input-timeoutSeconds" min="1" />
+  </div>
+  <div class="form-row">
+    <label for="node-input-checkIntervalSeconds"><i class="fa fa-clock-o"></i> Check (s)</label>
+    <input type="number" id="node-input-checkIntervalSeconds" min="1" placeholder="(auto: timeout / 5, clamped 5–60)" />
+  </div>
+  <div class="form-row">
+    <label for="node-input-seedOnDeploy"><i class="fa fa-play"></i> Seed at deploy</label>
+    <input type="checkbox" id="node-input-seedOnDeploy" style="width:auto" />
+    <span style="color:#888;font-style:italic;margin-left:8px;">treat deploy as last-seen so we don't alarm immediately</span>
+  </div>
+</script>
+
+<script type="text/html" data-help-name="eelectron-knxip-watchdog">
+  <p>Watches a set of group addresses and fires when one of them goes silent
+  for longer than the configured timeout. Use it for HVAC sensors, presence
+  detectors, weather feeds, or any GA that <i>should</i> publish on a
+  predictable cadence.</p>
+
+  <h3>How it works</h3>
+  <p>The node subscribes to the bound tunnel's bus traffic, records a
+  last-seen timestamp for every <code>GroupValueWrite</code> /
+  <code>GroupValueResponse</code> on a watched GA, and on a periodic check
+  emits an <code>alarm</code> message if a GA hasn't reported within the
+  timeout. When the GA speaks up again, a <code>recovery</code> message
+  follows.</p>
+
+  <h3>Output</h3>
+  <pre><code>msg.topic   = "1/1/29"
+msg.payload = {
+  ga: "1/1/29",
+  gaName: "Temperature room 1",   // when an ETS project is bound
+  state: "alarm" | "recovery",
+  lastSeen: 1715089021435,        // epoch ms, null if never seen
+  ageMs: 350123,                  // since lastSeen, null if never seen
+  timeoutMs: 300000,
+}</code></pre>
+
+  <h3>Tips</h3>
+  <ul>
+    <li>Bind an <b>ETS project</b> to get the GA name in the alarm payload
+      and a friendlier sidebar status.</li>
+    <li>The <b>Check</b> cadence defaults to <code>timeout / 5</code>
+      bounded to 5–60 s — fine for most cases. Tighten it only if you
+      need sub-minute alarm latency on fast sensors.</li>
+    <li><b>Seed at deploy</b> (default on) treats the moment of deploy as
+      the initial last-seen; turn it off when you want to alarm
+      immediately on GAs that haven't been seen yet.</li>
+  </ul>
+</script>

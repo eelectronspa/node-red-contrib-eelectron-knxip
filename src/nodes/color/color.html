@@ -4,6 +4,7 @@
     color: '#9CC78B',
     defaults: {
       name: { value: '' },
+      etsConfig: { value: '', type: 'eelectron-knxip-ets-config', required: false },
       groupAddress: { value: '' },
       mode: { value: 'rgb' },
     },
@@ -14,6 +15,43 @@
     label: function () {
       return this.name || 'knx color';
     },
+    oneditprepare: function () {
+      var $ga = $('#node-input-groupAddress');
+      var $ets = $('#node-input-etsConfig');
+      var gaCache = [];
+      var gaCacheFor = '';
+      function loadGAs(cb) {
+        var cfgId = $ets.val() || '';
+        if (!cfgId || cfgId === '_ADD_') { gaCache = []; gaCacheFor = ''; cb([]); return; }
+        if (gaCacheFor === cfgId) { cb(gaCache); return; }
+        $.getJSON('eelectron-knxip-ets-config/' + encodeURIComponent(cfgId) + '/group-addresses',
+          function (list) { gaCache = list || []; gaCacheFor = cfgId; cb(gaCache); })
+          .fail(function () { cb([]); });
+      }
+      $ga.autocomplete({
+        minLength: 0,
+        delay: 100,
+        source: function (req, resp) {
+          loadGAs(function (list) {
+            var term = (req.term || '').toLowerCase();
+            resp(list
+              .filter(function (e) {
+                return e.ga.indexOf(term) !== -1 ||
+                  (e.name || '').toLowerCase().indexOf(term) !== -1;
+              })
+              .slice(0, 50)
+              .map(function (e) {
+                return {
+                  label: e.ga + (e.name ? ' — ' + e.name : '') + (e.dpt ? ' [' + e.dpt + ']' : ''),
+                  value: e.ga,
+                };
+              }));
+          });
+        },
+      });
+      $ga.on('focus', function () { $ga.autocomplete('search', $ga.val() || ''); });
+      $ets.on('change', function () { gaCacheFor = ''; });
+    },
   });
 </script>
 
@@ -23,8 +61,12 @@
     <input type="text" id="node-input-name" />
   </div>
   <div class="form-row">
-    <label for="node-input-groupAddress"><i class="fa fa-tag"></i> Default GA</label>
-    <input type="text" id="node-input-groupAddress" placeholder="e.g. 5/2/1 (override with msg.topic)" />
+    <label for="node-input-etsConfig"><i class="fa fa-book"></i> ETS project</label>
+    <input type="text" id="node-input-etsConfig" />
+  </div>
+  <div class="form-row">
+    <label for="node-input-groupAddress"><i class="fa fa-map-pin"></i> Default GA</label>
+    <input type="text" id="node-input-groupAddress" placeholder="e.g. 5/2/1 — typeahead from ETS (override with msg.topic)" />
   </div>
   <div class="form-row">
     <label for="node-input-mode"><i class="fa fa-cog"></i> Mode</label>

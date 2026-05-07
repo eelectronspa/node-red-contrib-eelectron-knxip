@@ -22,7 +22,7 @@
       return this.name || 'knx listener';
     },
     oneditprepare: function () {
-      // DPT autocomplete (sourced from the codec registry)
+      // ---- DPT autocomplete (codec registry) ----
       var $dpt = $('#node-input-dpt');
       var dptCache = null;
       function loadDpts(cb) {
@@ -40,10 +40,8 @@
             var term = (req.term || '').toLowerCase();
             var matches = list
               .filter(function (d) {
-                return (
-                  d.id.indexOf(term) !== -1 ||
-                  (d.name || '').toLowerCase().indexOf(term) !== -1
-                );
+                return d.id.indexOf(term) !== -1 ||
+                  (d.name || '').toLowerCase().indexOf(term) !== -1;
               })
               .slice(0, 50)
               .map(function (d) {
@@ -56,9 +54,73 @@
           });
         },
       });
-      $dpt.on('focus', function () {
-        $dpt.autocomplete('search', $dpt.val() || '');
+      $dpt.on('focus', function () { $dpt.autocomplete('search', $dpt.val() || ''); });
+
+      // ---- "Add GA from ETS" picker — typeahead that appends to textarea ----
+      var $picker = $('#listener-ga-picker');
+      var $gaList = $('#node-input-groupAddresses');
+      var $etsCfg = $('#node-input-etsConfig');
+      var gaCache = [];
+      var gaCacheFor = '';
+      function loadGAs(cb) {
+        var cfgId = $etsCfg.val() || '';
+        if (!cfgId || cfgId === '_ADD_') { gaCache = []; gaCacheFor = ''; cb([]); return; }
+        if (gaCacheFor === cfgId) { cb(gaCache); return; }
+        $.getJSON('eelectron-knxip-ets-config/' + encodeURIComponent(cfgId) + '/group-addresses',
+          function (list) { gaCache = list || []; gaCacheFor = cfgId; cb(gaCache); })
+          .fail(function () { cb([]); });
+      }
+      $picker.autocomplete({
+        minLength: 0,
+        delay: 100,
+        source: function (req, resp) {
+          loadGAs(function (list) {
+            var term = (req.term || '').toLowerCase();
+            resp(list
+              .filter(function (e) {
+                return e.ga.indexOf(term) !== -1 ||
+                  (e.name || '').toLowerCase().indexOf(term) !== -1;
+              })
+              .slice(0, 50)
+              .map(function (e) {
+                return {
+                  label: e.ga + (e.name ? ' — ' + e.name : '') + (e.dpt ? ' [' + e.dpt + ']' : ''),
+                  value: e.ga,
+                };
+              }));
+          });
+        },
+        select: function (_evt, ui) {
+          // Append the selected GA to the textarea on its own line, avoiding
+          // duplicates. Clear the picker for the next pick.
+          var current = ($gaList.val() || '').trim();
+          var lines = current ? current.split(/\r?\n/) : [];
+          if (lines.indexOf(ui.item.value) === -1) {
+            lines.push(ui.item.value);
+            $gaList.val(lines.join('\n')).trigger('change');
+          }
+          setTimeout(function () { $picker.val(''); }, 0);
+          return false;
+        },
       });
+      $picker.on('focus', function () { $picker.autocomplete('search', $picker.val() || ''); });
+      $etsCfg.on('change', function () { gaCacheFor = ''; });
+
+      // ---- Advanced section toggle ----
+      var $adv = $('.knxip-listener-advanced');
+      var $advBtn = $('#listener-advanced-toggle');
+      var advOpen = !!(this.readOnConnect ||
+        (this.readDelayMs && Number(this.readDelayMs) !== 100) ||
+        (this.readMaxCount && Number(this.readMaxCount) !== 200));
+      function syncAdv() {
+        $adv.toggle(advOpen);
+        $advBtn.html(
+          (advOpen ? '<i class="fa fa-caret-down"></i>' : '<i class="fa fa-caret-right"></i>') +
+          ' Advanced (read on connect)',
+        );
+      }
+      $advBtn.on('click', function (e) { e.preventDefault(); advOpen = !advOpen; syncAdv(); });
+      syncAdv();
     },
   });
 </script>
@@ -81,6 +143,11 @@
     <textarea id="node-input-groupAddresses" rows="4"
       placeholder="One per line. Wildcards in long form: 1/2/*  or  1/*/3  or  */*/*"></textarea>
   </div>
+  <div class="form-row" style="margin-top:-6px;">
+    <label for="listener-ga-picker"><i class="fa fa-search"></i> Add from ETS</label>
+    <input type="text" id="listener-ga-picker"
+      placeholder="type a GA or name — picks from the ETS project, appends to the list above" />
+  </div>
   <div class="form-row">
     <label for="node-input-subscribeAllFromEts"><i class="fa fa-globe"></i> All from ETS</label>
     <input type="checkbox" id="node-input-subscribeAllFromEts" style="width:auto" />
@@ -91,19 +158,26 @@
     <input type="text" id="node-input-dpt"
       placeholder="e.g. 1.001 — blank uses ETS-mapped DPT, then raw APDU" />
   </div>
-  <hr/>
-  <div class="form-row">
-    <label for="node-input-readOnConnect"><i class="fa fa-bolt"></i> Read on connect</label>
-    <input type="checkbox" id="node-input-readOnConnect" style="width:auto" />
-    <span style="color:#888;margin-left:8px;">Fire GroupValueRead for each subscribed GA after the tunnel comes up.</span>
+  <div class="form-row" style="margin-top:8px;">
+    <label></label>
+    <a href="#" id="listener-advanced-toggle" style="text-decoration:none;color:#888;">
+      <i class="fa fa-caret-right"></i> Advanced (read on connect)
+    </a>
   </div>
-  <div class="form-row">
-    <label for="node-input-readDelayMs"><i class="fa fa-clock-o"></i> Read delay (ms)</label>
-    <input type="number" id="node-input-readDelayMs" min="0" />
-  </div>
-  <div class="form-row">
-    <label for="node-input-readMaxCount"><i class="fa fa-hashtag"></i> Read max count</label>
-    <input type="number" id="node-input-readMaxCount" min="0" />
+  <div class="knxip-listener-advanced" style="display:none;">
+    <div class="form-row">
+      <label for="node-input-readOnConnect"><i class="fa fa-bolt"></i> Read on connect</label>
+      <input type="checkbox" id="node-input-readOnConnect" style="width:auto" />
+      <span style="color:#888;margin-left:8px;">Fire GroupValueRead for each subscribed GA after the tunnel comes up.</span>
+    </div>
+    <div class="form-row">
+      <label for="node-input-readDelayMs"><i class="fa fa-clock-o"></i> Read delay (ms)</label>
+      <input type="number" id="node-input-readDelayMs" min="0" />
+    </div>
+    <div class="form-row">
+      <label for="node-input-readMaxCount"><i class="fa fa-hashtag"></i> Read max count</label>
+      <input type="number" id="node-input-readMaxCount" min="0" />
+    </div>
   </div>
 </script>
 

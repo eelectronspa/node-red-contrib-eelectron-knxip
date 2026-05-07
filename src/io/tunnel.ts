@@ -50,6 +50,41 @@ import { type SocketAddress, UdpTransport } from './udpTransport';
 
 export type TunnelState = 'disconnected' | 'connecting' | 'connected' | 'disconnecting';
 
+/**
+ * Snapshot returned by `TunnelClient.getDiagnostics()`. Suitable for serving
+ * directly from an admin endpoint or feeding into a monitoring sidebar.
+ *
+ * All `*Ts` fields are wall-clock milliseconds since epoch; `null` means the
+ * event has never been observed for this tunnel. Counters reset only on
+ * client construction — they accumulate across reconnects.
+ */
+export interface TunnelDiagnostics {
+  state: TunnelState;
+  assignedAddress: string | null;
+  gatewayIp: string;
+  gatewayPort: number;
+  transport: 'udp' | 'tcp';
+  secure: boolean;
+  sendQueueDepth: number;
+  txTelegrams: number;
+  rxTelegrams: number;
+  heartbeatsOk: number;
+  heartbeatsFailed: number;
+  reconnects: number;
+  lastFrameTs: number | null;
+  lastTxTs: number | null;
+  lastRxTs: number | null;
+  lastHeartbeatOkTs: number | null;
+  lastHeartbeatFailTs: number | null;
+  lastReconnectTs: number | null;
+  lastTunnelLostReason: string | null;
+  connectedAtTs: number | null;
+  /** Milliseconds since the current connect; 0 if not connected. */
+  uptimeMs: number;
+  /** Milliseconds since the last frame in either direction; null if never. */
+  sinceLastFrameMs: number | null;
+}
+
 export interface SecureTunnelOptions {
   /** Tunnelling user ID (1..127). User 1 is "management" — usually a regular
    *  user (2..127) is what you configure for runtime traffic. */
@@ -185,6 +220,26 @@ export class TunnelClient extends EventEmitter {
 
   private readonly _sendQueue = new SerialQueue();
 
+  // Counters surfaced via getDiagnostics(). All wall-clock timestamps are
+  // ms-since-epoch; null means "never observed yet". Counters reset on
+  // construction; they do *not* reset on reconnect so cumulative behaviour
+  // over a tunnel's whole lifetime stays visible.
+  private readonly _stats = {
+    txTelegrams: 0,
+    rxTelegrams: 0,
+    heartbeatsOk: 0,
+    heartbeatsFailed: 0,
+    reconnects: 0,
+    lastFrameTs: null as number | null,
+    lastTxTs: null as number | null,
+    lastRxTs: null as number | null,
+    lastHeartbeatOkTs: null as number | null,
+    lastHeartbeatFailTs: null as number | null,
+    lastReconnectTs: null as number | null,
+    lastTunnelLostReason: null as string | null,
+    connectedAtTs: null as number | null,
+  };
+
   /** Tunnel-builder transport factory (overridable for tests). */
   private readonly _transportFactory: (opts: TunnelClientOptions) => Transport;
 
@@ -216,6 +271,42 @@ export class TunnelClient extends EventEmitter {
     return this._sendQueue.depth;
   }
 
+  /**
+   * Snapshot of the tunnel's runtime counters and last-seen timestamps.
+   * Pure getter — cheap to call from a polling admin endpoint or a UI tick.
+   */
+  getDiagnostics(): TunnelDiagnostics {
+    const now = Date.now();
+    return {
+      state: this._state,
+      assignedAddress: this._assignedAddress?.toString() ?? null,
+      gatewayIp: this._opts.gatewayIp,
+      gatewayPort: this._opts.gatewayPort,
+      transport: this._isOverTcp() ? 'tcp' : 'udp',
+      secure: this._opts.secure !== undefined,
+      sendQueueDepth: this._sendQueue.depth,
+      txTelegrams: this._stats.txTelegrams,
+      rxTelegrams: this._stats.rxTelegrams,
+      heartbeatsOk: this._stats.heartbeatsOk,
+      heartbeatsFailed: this._stats.heartbeatsFailed,
+      reconnects: this._stats.reconnects,
+      lastFrameTs: this._stats.lastFrameTs,
+      lastTxTs: this._stats.lastTxTs,
+      lastRxTs: this._stats.lastRxTs,
+      lastHeartbeatOkTs: this._stats.lastHeartbeatOkTs,
+      lastHeartbeatFailTs: this._stats.lastHeartbeatFailTs,
+      lastReconnectTs: this._stats.lastReconnectTs,
+      lastTunnelLostReason: this._stats.lastTunnelLostReason,
+      connectedAtTs: this._stats.connectedAtTs,
+      uptimeMs:
+        this._state === 'connected' && this._stats.connectedAtTs
+          ? now - this._stats.connectedAtTs
+          : 0,
+      sinceLastFrameMs:
+        this._stats.lastFrameTs !== null ? now - this._stats.lastFrameTs : null,
+    };
+  }
+
   // ---------- public API ----------
 
   async connect(): Promise<void> {
@@ -239,6 +330,7 @@ export class TunnelClient extends EventEmitter {
 
     this._seqOut = 0;
     this._seqIn = 0;
+    this._stats.connectedAtTs = Date.now();
     this._startHeartbeat();
     this._setState('connected');
   }
@@ -521,6 +613,10 @@ export class TunnelClient extends EventEmitter {
     const target = this._dataEndpoint ?? undefined;
     await this._transport.send(KNXIPFrame.fromBody(req), target);
     await ackPromise;
+    const now = Date.now();
+    this._stats.txTelegrams += 1;
+    this._stats.lastTxTs = now;
+    this._stats.lastFrameTs = now;
     if (!this._isOverTcp()) this._bumpSeqOut();
   }
 
@@ -640,6 +736,10 @@ export class TunnelClient extends EventEmitter {
   private _processIncomingCemi(rawCemi: Buffer): void {
     try {
       const { frame } = CEMIFrame.fromKnx(rawCemi);
+      const now = Date.now();
+      this._stats.rxTelegrams += 1;
+      this._stats.lastRxTs = now;
+      this._stats.lastFrameTs = now;
       this.emit('cemi', frame);
     } catch (err) {
       this._logger.warn(`Could not parse inbound CEMI: ${(err as Error).message}`);
@@ -760,7 +860,11 @@ export class TunnelClient extends EventEmitter {
     for (let attempt = 0; attempt < HEARTBEAT_MAX_FAILURES; attempt++) {
       try {
         const resp = await this._sendConnectionStateRequest();
-        if (resp.statusCode === ErrorCode.E_NO_ERROR) return;
+        if (resp.statusCode === ErrorCode.E_NO_ERROR) {
+          this._stats.heartbeatsOk += 1;
+          this._stats.lastHeartbeatOkTs = Date.now();
+          return;
+        }
         lastErr = new CommunicationError(
           `Heartbeat status ${errorCodeName(resp.statusCode)}`,
         );
@@ -768,6 +872,8 @@ export class TunnelClient extends EventEmitter {
         lastErr = err as Error;
       }
     }
+    this._stats.heartbeatsFailed += 1;
+    this._stats.lastHeartbeatFailTs = Date.now();
     this._onTunnelLost(
       new CommunicationError(`Heartbeat failed: ${lastErr?.message ?? 'unknown'}`),
     );
@@ -799,6 +905,10 @@ export class TunnelClient extends EventEmitter {
   private _onTunnelLost(reason: Error): void {
     if (this._state === 'disconnected' || this._state === 'disconnecting') return;
     this._logger.warn(`Tunnel lost: ${reason.message}`);
+    this._stats.reconnects += 1;
+    this._stats.lastReconnectTs = Date.now();
+    this._stats.lastTunnelLostReason = reason.message;
+    this._stats.connectedAtTs = null;
     this.emit('warning', reason);
 
     this._stopHeartbeat();

@@ -1,0 +1,58 @@
+[
+  {
+    "id": "ex19-tab",
+    "type": "tab",
+    "label": "KNX/IP — KNX → MQTT bridge",
+    "disabled": false,
+    "info": "Publish every KNX bus event from one or more tunnels onto MQTT, filtered by ETS-project membership.\n\n**How it works**:\n1. One or more *eelectron-knxip-listener* nodes (in all-from-ETS mode) feed every received telegram into a single *eelectron-knxip-mqtt-publish* node.\n2. The publish node looks up each GA in its bound ETS project. GAs not in the project are dropped (so multi-project setups stay tidy).\n3. The publish node renders a topic + payload (template configurable) and emits a stripped-down `{topic, payload}` message — no internal KNX bookkeeping leaks.\n4. The downstream `mqtt out` is a stub. Configure it once with your broker, and the whole bridge is live.\n\n**Setup**:\n1. Bind the listener and publish node to the same ETS config + tunnel.\n2. Open the `mqtt out` node, point it at your broker (or pick an existing one).\n3. Deploy.\n\n**Tip**: the *eelectron-knxip-ets-config* dialog has a *⚡ Generate KNX → MQTT bridge* button that builds this whole layout for you, with one listener per selected tunnel."
+  },
+  {
+    "id": "ex19-listener",
+    "type": "eelectron-knxip-listener",
+    "z": "ex19-tab",
+    "name": "all bus traffic",
+    "config": "",
+    "etsConfig": "",
+    "subscribeAllFromEts": true,
+    "groupAddresses": "",
+    "dpt": "",
+    "readOnConnect": false,
+    "readDelayMs": 100,
+    "readMaxCount": 200,
+    "x": 160,
+    "y": 100,
+    "wires": [["ex19-publish"]]
+  },
+  {
+    "id": "ex19-publish",
+    "type": "eelectron-knxip-mqtt-publish",
+    "z": "ex19-tab",
+    "name": "",
+    "etsConfig": "",
+    "topicTemplate": "knx/{ga}",
+    "payloadMode": "object",
+    "payloadTemplate": "",
+    "forwardUnknown": false,
+    "x": 380,
+    "y": 100,
+    "wires": [["ex19-mqtt"]]
+  },
+  {
+    "id": "ex19-mqtt",
+    "type": "mqtt out",
+    "z": "ex19-tab",
+    "name": "broker",
+    "topic": "",
+    "qos": "0",
+    "retain": "",
+    "respTopic": "",
+    "contentType": "",
+    "userProps": "",
+    "correl": "",
+    "expiry": "",
+    "broker": "",
+    "x": 580,
+    "y": 100,
+    "wires": []
+  }
+]

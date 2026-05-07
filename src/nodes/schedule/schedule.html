@@ -1,0 +1,196 @@
+<script type="text/javascript">
+  RED.nodes.registerType('eelectron-knxip-schedule', {
+    category: 'eelectron-knxip',
+    color: '#9CC78B',
+    defaults: {
+      name: { value: '' },
+      etsConfig: { value: '', type: 'eelectron-knxip-ets-config', required: true },
+      ga: { value: '' },
+      payloadJson: { value: '' },
+      mode: { value: 'cron' },
+      cron: { value: '0 7 * * *' },
+      intervalSeconds: { value: 60, validate: RED.validators.number(true) },
+      fireOnDeploy: { value: false },
+    },
+    inputs: 1,
+    outputs: 1,
+    icon: 'KNX_logo.svg',
+    paletteLabel: 'schedule',
+    align: 'left',
+    button: {
+      enabled: function () {
+        return !this.changed;
+      },
+      onclick: function () {
+        var node = this;
+        $.ajax({
+          url: 'inject/' + node.id,
+          type: 'POST',
+          data: '',
+          dataType: 'text',
+        }).fail(function () {
+          // Older Node-REDs don't expose the inject endpoint for arbitrary
+          // node types. Falls back to telling the user to redeploy.
+          RED.notify('Could not trigger schedule node directly — redeploy with "Fire on deploy" instead', { type: 'warning' });
+        });
+      },
+    },
+    label: function () {
+      var label = this.name || ('schedule ' + (this.ga || '?'));
+      return label;
+    },
+    oneditprepare: function () {
+      var node = this;
+      var $mode = $('#node-input-mode');
+      var $cronRow = $('.knxip-schedule-cron');
+      var $intervalRow = $('.knxip-schedule-interval');
+
+      function syncMode() {
+        var mode = $mode.val() || 'cron';
+        $cronRow.toggle(mode === 'cron');
+        $intervalRow.toggle(mode === 'interval');
+      }
+      $mode.on('change', syncMode);
+      syncMode();
+
+      // Cron preset → fills the cron field. Reset the dropdown after pick so
+      // it always reads as "Presets…" (the dropdown is a chooser, not state).
+      $('#schedule-cron-preset').on('change', function () {
+        var v = $(this).val();
+        if (v) {
+          $('#node-input-cron').val(v).trigger('change');
+        }
+        $(this).val('');
+      });
+
+      // GA picker: typeahead from the bound ETS config.
+      var $ga = $('#node-input-ga');
+      var lastConfigId = '';
+      var entriesCache = null;
+      function loadEntries(cb) {
+        var cfgId = $('#node-input-etsConfig').val() || '';
+        if (cfgId === lastConfigId && entriesCache) { cb(entriesCache); return; }
+        lastConfigId = cfgId;
+        entriesCache = null;
+        if (!cfgId) { cb([]); return; }
+        $.getJSON('eelectron-knxip-ets-config/' + cfgId + '/group-addresses', function (list) {
+          entriesCache = list || [];
+          cb(entriesCache);
+        }).fail(function () { cb([]); });
+      }
+      $ga.autocomplete({
+        minLength: 0,
+        delay: 100,
+        source: function (req, resp) {
+          loadEntries(function (list) {
+            var term = (req.term || '').toLowerCase();
+            var matches = list
+              .filter(function (e) {
+                return (
+                  e.ga.indexOf(term) !== -1 ||
+                  (e.name || '').toLowerCase().indexOf(term) !== -1
+                );
+              })
+              .slice(0, 50)
+              .map(function (e) {
+                var label = e.ga + (e.name ? ' — ' + e.name : '');
+                if (e.dpt) label += ' [' + e.dpt + ']';
+                return { label: label, value: e.ga };
+              });
+            resp(matches);
+          });
+        },
+      });
+      $ga.on('focus', function () {
+        $ga.autocomplete('search', $ga.val() || '');
+      });
+    },
+  });
+</script>
+
+<script type="text/html" data-template-name="eelectron-knxip-schedule">
+  <div class="form-row">
+    <label for="node-input-name"><i class="fa fa-tag"></i> Name</label>
+    <input type="text" id="node-input-name" />
+  </div>
+  <div class="form-row">
+    <label for="node-input-etsConfig"><i class="fa fa-book"></i> ETS project</label>
+    <input type="text" id="node-input-etsConfig" />
+  </div>
+  <div class="form-row">
+    <label for="node-input-ga"><i class="fa fa-map-pin"></i> GA</label>
+    <input type="text" id="node-input-ga" placeholder="1/2/3 — pick from project" />
+  </div>
+  <div class="form-row">
+    <label for="node-input-payloadJson"><i class="fa fa-code"></i> Payload</label>
+    <input type="text" id="node-input-payloadJson" placeholder='true · 42 · "hello" · {"r":255,"g":128,"b":0}' />
+  </div>
+  <div class="form-row">
+    <label for="node-input-mode"><i class="fa fa-clock-o"></i> Mode</label>
+    <select id="node-input-mode" style="width:auto;">
+      <option value="cron">Cron expression</option>
+      <option value="interval">Every N seconds</option>
+    </select>
+  </div>
+  <div class="form-row knxip-schedule-cron">
+    <label for="node-input-cron"><i class="fa fa-calendar-o"></i> Cron</label>
+    <input type="text" id="node-input-cron" placeholder="0 7 * * * — every day at 07:00" />
+  </div>
+  <div class="form-row knxip-schedule-cron" style="margin-top:-6px;">
+    <label></label>
+    <select id="schedule-cron-preset" style="width:auto;">
+      <option value="">Presets…</option>
+      <option value="* * * * *">Every minute</option>
+      <option value="*/5 * * * *">Every 5 minutes</option>
+      <option value="*/15 * * * *">Every 15 minutes</option>
+      <option value="0 * * * *">Every hour, on the hour</option>
+      <option value="0 7 * * *">Every day at 07:00</option>
+      <option value="0 22 * * *">Every day at 22:00</option>
+      <option value="0 9 * * 1-5">Weekdays at 09:00</option>
+      <option value="0 9 * * 1">Every Monday at 09:00</option>
+      <option value="0 0 1 * *">First of every month, 00:00</option>
+    </select>
+    <span style="color:#888;font-style:italic;margin-left:8px;">picks fill the field above</span>
+  </div>
+  <div class="form-row knxip-schedule-interval" style="display:none;">
+    <label for="node-input-intervalSeconds"><i class="fa fa-clock-o"></i> Every (s)</label>
+    <input type="number" id="node-input-intervalSeconds" min="1" />
+  </div>
+  <div class="form-row">
+    <label for="node-input-fireOnDeploy"><i class="fa fa-bolt"></i> Fire on deploy</label>
+    <input type="checkbox" id="node-input-fireOnDeploy" style="width:auto;" />
+    <span style="color:#888;font-style:italic;margin-left:8px;">also fire once shortly after deploy</span>
+  </div>
+</script>
+
+<script type="text/html" data-help-name="eelectron-knxip-schedule">
+  <p>Fires a configured payload to a chosen group address on a schedule.
+  Output shape matches <code>eelectron-knxip-ets-inject</code> so you can
+  pipe it directly into a writer with the same ETS config bound — the
+  writer auto-encodes via the GA's DPT.</p>
+
+  <h3>Modes</h3>
+  <ul>
+    <li><b>Cron</b> — 5-field expression: <code>minute hour dom month dow</code>.
+      Supports <code>*</code>, single values, <code>A-B</code> ranges,
+      <code>*/N</code> steps, and <code>A,B,C</code> lists.
+      Examples: <code>0 7 * * *</code> (every day at 07:00),
+      <code>*/15 * * * *</code> (every 15 minutes),
+      <code>0 17 * * 5</code> (every Friday at 17:00).
+      Day-of-week uses 0–6 (0 = Sunday); 7 also accepted as Sunday.
+      Times are local-clock.</li>
+    <li><b>Interval</b> — fire every N seconds. Useful for periodic polls
+      or dashboard refreshes.</li>
+  </ul>
+
+  <h3>Payload</h3>
+  <p>The Payload field is parsed as JSON when it's a valid literal —
+  <code>true</code>, <code>42</code>, <code>"hello"</code>,
+  <code>{"r":255,"g":128,"b":0}</code> — otherwise sent as a plain string.
+  The DPT codec on the downstream writer decides how to turn the value into
+  bytes.</p>
+
+  <h3>Tip</h3>
+  <p><b>Fire on deploy</b> sends one extra event ~100 ms after the flow starts.
+  Useful for "set the heating mode at startup" scenarios.</p>
+</script>

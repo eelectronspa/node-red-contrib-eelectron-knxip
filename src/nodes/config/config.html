@@ -68,6 +68,122 @@
     });
     $toolbar.append($pauseBtn, $clearBtn, $filterInput);
 
+    // ---- Diagnostics strip -----------------------------------------------
+    // Compact per-tunnel counters above the table. Polls
+    // `/eelectron-knxip/diagnostics` every 2 s; rendering is O(N tunnels).
+    var $diag = $('<div>').css({
+      padding: '6px 8px',
+      borderBottom: '1px solid #ccc',
+      flex: '0 0 auto',
+      fontSize: '11px',
+      display: 'none',
+    });
+
+    function fmtAge(ms) {
+      if (ms === null || ms === undefined) return '—';
+      if (ms < 1000) return ms + ' ms';
+      if (ms < 60_000) return Math.round(ms / 1000) + ' s';
+      if (ms < 3_600_000) return Math.round(ms / 60_000) + ' m';
+      return Math.round(ms / 3_600_000) + ' h';
+    }
+
+    function stateColor(state) {
+      if (state === 'connected') return '#388e3c';
+      if (state === 'connecting' || state === 'disconnecting') return '#f57c00';
+      return '#888';
+    }
+
+    function renderDiagnostics(tunnels) {
+      if (!Array.isArray(tunnels) || tunnels.length === 0) {
+        $diag.hide();
+        return;
+      }
+      $diag.show().empty();
+      var now = Date.now();
+      tunnels.forEach(function (t) {
+        var $row = $('<div>').css({
+          display: 'flex',
+          gap: '12px',
+          alignItems: 'center',
+          flexWrap: 'wrap',
+          marginBottom: '2px',
+        });
+        $row.append(
+          $('<span>').css({ color: stateColor(t.state), fontWeight: 'bold' }).text('●'),
+        );
+        $row.append(
+          $('<span>').css({ fontWeight: 'bold' }).text(t.label || t.gatewayIp),
+        );
+        $row.append(
+          $('<span>').css({ color: '#888' }).text(
+            t.transport.toUpperCase() + (t.secure ? '+SEC' : '') +
+            ' ' + t.gatewayIp + ':' + t.gatewayPort +
+            (t.assignedAddress ? ' as ' + t.assignedAddress : ''),
+          ),
+        );
+        $row.append(
+          $('<span>').text('rx ').append($('<b>').text(t.rxTelegrams || 0)),
+        );
+        $row.append(
+          $('<span>').text('tx ').append($('<b>').text(t.txTelegrams || 0)),
+        );
+        $row.append(
+          $('<span>').text('queue ').append($('<b>').text(t.sendQueueDepth || 0)),
+        );
+        $row.append(
+          $('<span>')
+            .attr('title', 'heartbeats OK / failed')
+            .text('hb ').append($('<b>').text((t.heartbeatsOk || 0) + '/' + (t.heartbeatsFailed || 0))),
+        );
+        $row.append(
+          $('<span>')
+            .attr('title', 'reconnect count')
+            .text('reconn ').append($('<b>').text(t.reconnects || 0)),
+        );
+        $row.append(
+          $('<span>')
+            .attr('title', 'time since last frame in either direction')
+            .text('idle ').append($('<b>').text(fmtAge(t.sinceLastFrameMs))),
+        );
+        if (t.state === 'connected' && t.uptimeMs) {
+          $row.append(
+            $('<span>')
+              .attr('title', 'time since current connect')
+              .text('up ').append($('<b>').text(fmtAge(t.uptimeMs))),
+          );
+        }
+        if (t.lastTunnelLostReason && t.state !== 'connected') {
+          $row.append(
+            $('<span>').css({ color: '#c62828' }).text('· ' + t.lastTunnelLostReason),
+          );
+        }
+        $diag.append($row);
+      });
+      void now;
+    }
+
+    function pollDiagnostics() {
+      $.ajax({
+        url: 'eelectron-knxip/diagnostics',
+        type: 'GET',
+        timeout: 1500,
+      })
+        .done(function (resp) {
+          renderDiagnostics(resp && resp.tunnels);
+        })
+        .fail(function () {
+          // Keep last view; transient editor-restarts shouldn't blank the
+          // panel. A persistent failure will eventually show because the
+          // tunnels list will go stale.
+        });
+    }
+
+    // Poll every 2 s while the editor is open. unref-equivalent isn't
+    // applicable in browser JS, but the interval is cheap and stops when
+    // the editor closes.
+    setInterval(pollDiagnostics, 2000);
+    pollDiagnostics();
+
     // ---- Table ------------------------------------------------------------
     var $tableWrap = $('<div>').css({
       flex: '1 1 auto',
@@ -103,7 +219,7 @@
       fontSize: '11px',
     });
 
-    $root.append($toolbar, $tableWrap, $footer);
+    $root.append($toolbar, $diag, $tableWrap, $footer);
 
     function fmtTime(ts) {
       var d = new Date(ts);

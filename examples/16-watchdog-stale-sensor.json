@@ -1,0 +1,77 @@
+[
+  {
+    "id": "ex16-tab",
+    "type": "tab",
+    "label": "KNX/IP — watchdog (stale sensor alarm)",
+    "disabled": false,
+    "info": "Fires an alarm when a watched group address has been silent longer than its timeout, and a recovery message when it speaks again.\n\n**Setup**:\n1. Bind the *watchdog* node to your *tunnel-config* and (optional) *ets-config*.\n2. List the GAs to watch in the textarea — one per line, or comma-separated.\n3. Pick a timeout (default 300 s = 5 min). The check cadence auto-defaults to `timeout / 5` clamped to 5–60 s.\n4. Wire the output to whatever you want to do on alarm: a notification node, a flag in a state store, an MQTT publish, or just a debug.\n\nThe payload includes the GA, the (optional) GA name, `state: 'alarm' | 'recovery'`, the `lastSeen` timestamp, and the `ageMs` since last seen — enough to write a custom message in a function node downstream."
+  },
+  {
+    "id": "ex16-comment",
+    "type": "comment",
+    "z": "ex16-tab",
+    "name": "Add GAs to watch in the watchdog dialog →",
+    "info": "",
+    "x": 240,
+    "y": 60,
+    "wires": []
+  },
+  {
+    "id": "ex16-watchdog",
+    "type": "eelectron-knxip-watchdog",
+    "z": "ex16-tab",
+    "name": "",
+    "config": "",
+    "etsConfig": "",
+    "groupAddresses": "",
+    "timeoutSeconds": 300,
+    "checkIntervalSeconds": "",
+    "seedOnDeploy": true,
+    "x": 170,
+    "y": 140,
+    "wires": [["ex16-switch"]]
+  },
+  {
+    "id": "ex16-switch",
+    "type": "switch",
+    "z": "ex16-tab",
+    "name": "alarm vs recovery",
+    "property": "payload.state",
+    "propertyType": "msg",
+    "rules": [
+      { "t": "eq", "v": "alarm", "vt": "str" },
+      { "t": "eq", "v": "recovery", "vt": "str" }
+    ],
+    "checkall": "true",
+    "outputs": 2,
+    "x": 380,
+    "y": 140,
+    "wires": [["ex16-debug-alarm"], ["ex16-debug-rec"]]
+  },
+  {
+    "id": "ex16-debug-alarm",
+    "type": "debug",
+    "z": "ex16-tab",
+    "name": "🚨 alarm",
+    "active": true,
+    "tosidebar": true,
+    "complete": "true",
+    "targetType": "full",
+    "x": 590,
+    "y": 100,
+    "wires": []
+  },
+  {
+    "id": "ex16-debug-rec",
+    "type": "debug",
+    "z": "ex16-tab",
+    "name": "✅ recovery",
+    "active": true,
+    "tosidebar": true,
+    "complete": "true",
+    "targetType": "full",
+    "x": 600,
+    "y": 180,
+    "wires": []
+  }
+]

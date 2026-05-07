@@ -3,6 +3,70 @@
 All notable user-facing changes are documented here. Entries follow the
 "keep a changelog" style with semantic versioning.
 
+## [0.9.0] — 2026-05-07
+
+### Added
+- **`eelectron-knxip-watchdog` node** — watches a list of group
+  addresses and fires an `alarm` message when one of them has been
+  silent longer than the configured timeout, and a `recovery` message
+  when it speaks again. Optional ETS-config binding adds the GA name
+  to the alarm payload and the sidebar status. Default check cadence
+  is `timeout / 5` clamped to 5–60 s; "seed at deploy" prevents an
+  immediate alarm flood the moment the flow starts. Example flow 16
+  shows the typical wiring (watchdog → switch → alarm/recovery debug
+  outputs).
+- **`eelectron-knxip-dedupe` node** — drops repeat `(topic, payload)`
+  pairs that arrive within a configurable window. Treats objects as
+  equal when they canonicalise to the same JSON regardless of key
+  order, so structured DPTs (DPT 10 time, DPT 11 date, DPT 232 RGB)
+  dedupe correctly. Useful for cleaning a noisy listener and
+  breaking write → listener feedback loops.
+- **`eelectron-knxip-rate-limit` node** — caps msgs/window per topic
+  via a sliding-window counter. Default strategy is plain
+  drop-when-over; optional second output exposes the dropped messages
+  for logging or alarming.
+- Example flow 17 shows both filters wired on listener output (clean
+  stream) and on a writer input (outbound throttle with drop output).
+- **Generate-starter-flow button** in the ETS config dialog —
+  populates a fresh tab with one shared "all-from-ETS" listener →
+  debug node, one shared writer, and one core `inject` node per
+  group address (pre-filled with `topic = GA`, wired to the writer).
+  When the workspace has multiple tunnel-config nodes, an inline
+  picker asks which to bind to. Saves a lot of clicking on a
+  freshly-imported project; users prune from there.
+- **Per-tunnel diagnostics**. `TunnelClient` now keeps live counters
+  (TX / RX telegrams, heartbeat OK / failed, reconnects, last-frame
+  timestamps, connected-at) accessible via the new
+  `getDiagnostics()` method, exposed at admin endpoint
+  `GET /eelectron-knxip/diagnostics`, and rendered as a strip above
+  the bus-monitor sidebar table — one line per tunnel showing
+  state, gateway, transport (UDP / TCP / TCP+SEC), assigned IA,
+  rx/tx counts, queue depth, heartbeat OK/fail, reconnect count,
+  idle time, and uptime. Polls every 2 s.
+- **`eelectron-knxip-mqtt-publish` node** — bridges KNX listener
+  output to an `mqtt out` downstream. Filters by ETS-project
+  membership (only forwards GAs known to the bound project),
+  reshapes the message into `{topic, payload}` with a configurable
+  topic template (`{ga}` / `{gaName}` / `{dpt}` / `{source}` /
+  `{ts}`) and a payload mode (`value-only`, built-in `object`, or a
+  full JSON template — pure-placeholder strings preserve typing,
+  embedded ones interpolate as text). Strips every other inbound
+  field so internal KNX details don't leak to the broker.
+- **"Generate KNX → MQTT bridge" button** in the ETS config dialog
+  — second scaffolder. Pops up a checkbox modal listing every
+  `eelectron-knxip-config` in the workspace; pick which tunnels feed
+  the bridge and the generator drops a fresh tab containing one
+  all-from-ETS listener per picked tunnel, all wired into a single
+  mqtt-publish node, then into an `mqtt out` stub for you to point
+  at your broker.
+- **`eelectron-knxip-schedule` node** — fires a configured payload
+  to a chosen GA on a 5-field cron expression (with `*`, ranges,
+  lists, and steps) or a fixed interval. Output shape matches
+  `ets-inject` so it pipes straight into a writer with the same
+  ETS config bound — no encoder node needed. Includes manual
+  fire-on-deploy and a per-node fire counter in the status
+  footer. Example flow 18 shows both modes.
+
 ## [0.8.2] — 2026-05-07
 
 ### Added

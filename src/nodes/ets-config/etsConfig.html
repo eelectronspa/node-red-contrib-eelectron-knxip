@@ -300,6 +300,529 @@
         refreshStatus();
       });
 
+      // ---- Generate starter flow -----------------------------------------
+      // Drops a fresh tab populated with: an "all-from-ETS" listener wired
+      // to a debug node, a shared writer on the right, and one core
+      // `inject` node per GA pre-filled with `topic = GA`. Each inject
+      // wires to the writer so the user can fire test writes without
+      // configuring anything else first.
+      var $scaffold = $('#ets-config-scaffold');
+      var thisNodeId = (this && this.id) || null;
+
+      function refreshScaffoldEnabled() {
+        // Only gate on having a parsed project — that's the precondition we
+        // can detect reliably from the dialog. Tunnel availability is
+        // checked at click time so the button never looks broken because of
+        // a Node-RED API difference.
+        var hasEntries = (($entries.val() || '').trim()).length > 0;
+        $scaffold.prop('disabled', !hasEntries);
+        $scaffold.attr('title', hasEntries ? '' : 'Load a project first');
+      }
+      // Re-evaluate when entries are loaded/cleared (the parsedEntries hidden
+      // input fires `change` after every programmatic update). Also poll
+      // once on a short delay because some Node-RED builds restore form
+      // values without firing change events.
+      $entries.on('change', refreshScaffoldEnabled);
+      refreshScaffoldEnabled();
+      setTimeout(refreshScaffoldEnabled, 50);
+      setTimeout(refreshScaffoldEnabled, 250);
+
+      function makeId() {
+        // Node-RED's id helper exists in 3.x+. Fall back to a 16-char hex
+        // random for safety on older runtimes.
+        if (RED.nodes && typeof RED.nodes.id === 'function') return RED.nodes.id();
+        var s = '';
+        for (var i = 0; i < 16; i++) s += Math.floor(Math.random() * 16).toString(16);
+        return s;
+      }
+
+      function pickTunnelConfig(callback) {
+        // Find all tunnel-config nodes. `eachConfig` is the canonical Node-RED
+        // editor API but older builds expose only `eachNode` (which also
+        // includes config nodes). Use both, dedupe by id.
+        var seen = {};
+        var tunnels = [];
+        function maybeAdd(c) {
+          if (!c || c.type !== 'eelectron-knxip-config' || seen[c.id]) return;
+          seen[c.id] = true;
+          tunnels.push(c);
+        }
+        if (RED.nodes && typeof RED.nodes.eachConfig === 'function') {
+          try { RED.nodes.eachConfig(maybeAdd); } catch (e) { /* keep going */ }
+        }
+        if (RED.nodes && typeof RED.nodes.eachNode === 'function') {
+          try { RED.nodes.eachNode(maybeAdd); } catch (e) { /* keep going */ }
+        }
+        if (tunnels.length === 0) {
+          callback(null);
+          return;
+        }
+        if (tunnels.length === 1) {
+          callback(tunnels[0]);
+          return;
+        }
+        // Modest inline picker: list options, ask user via prompt(). It's not
+        // the prettiest UX, but avoids dragging in a full dialog widget for
+        // a one-shot decision.
+        var lines = tunnels
+          .map(function (t, i) {
+            return (i + 1) + ') ' + (t.name || (t.gatewayIp + ':' + (t.gatewayPort || 3671)));
+          })
+          .join('\n');
+        var input = window.prompt(
+          'Multiple KNX/IP tunnel configs in this workspace. Pick one:\n\n' +
+            lines +
+            '\n\nEnter the number:',
+          '1',
+        );
+        if (input === null) {
+          callback(null);
+          return;
+        }
+        var idx = parseInt(input, 10) - 1;
+        callback(idx >= 0 && idx < tunnels.length ? tunnels[idx] : null);
+      }
+
+      function buildStarterFlow(entries, tunnelId, etsConfigId, projectName) {
+        var tabId = makeId();
+        var tabLabel = 'KNX — ' + (projectName || 'starter');
+        var tab = {
+          id: tabId,
+          type: 'tab',
+          label: tabLabel,
+          disabled: false,
+          info:
+            'Generated starter flow for ETS project "' + (projectName || '?') +
+            '" (' + entries.length + ' GAs).\n\n' +
+            'The shared listener at the top emits *every* decoded telegram from the bound ' +
+            'tunnel. One inject node per *writable* GA is wired to the shared writer below — ' +
+            'set the inject\'s payload, click its button, and a write goes out to that GA via ' +
+            'the tunnel.\n\n' +
+            'Group addresses whose name ends with "Status" or "Sts" are skipped on the write ' +
+            'side because they are read-only feedback addresses by convention; they remain ' +
+            'visible in the listener output. Delete or rewire freely.',
+        };
+
+        var nodes = [];
+
+        // Top-of-tab comment.
+        nodes.push({
+          id: makeId(),
+          type: 'comment',
+          z: tabId,
+          name: 'Auto-generated from ETS project — edit / prune as needed',
+          info: '',
+          x: 280,
+          y: 40,
+          wires: [],
+        });
+
+        // Shared listener (all-from-ETS) → debug.
+        var debugId = makeId();
+        nodes.push({
+          id: makeId(),
+          type: 'eelectron-knxip-listener',
+          z: tabId,
+          name: 'all bus traffic',
+          config: tunnelId,
+          etsConfig: etsConfigId,
+          subscribeAllFromEts: true,
+          groupAddresses: '',
+          dpt: '',
+          x: 160,
+          y: 100,
+          wires: [[debugId]],
+        });
+        nodes.push({
+          id: debugId,
+          type: 'debug',
+          z: tabId,
+          name: 'decoded',
+          active: true,
+          tosidebar: true,
+          complete: 'true',
+          targetType: 'full',
+          x: 380,
+          y: 100,
+          wires: [],
+        });
+
+        // Shared writer on the right.
+        var writerId = makeId();
+        nodes.push({
+          id: writerId,
+          type: 'eelectron-knxip-writer',
+          z: tabId,
+          name: 'shared writer',
+          config: tunnelId,
+          etsConfig: etsConfigId,
+          groupAddress: '',
+          dpt: '',
+          x: 800,
+          y: 100,
+          wires: [],
+        });
+
+        // One inject per GA — but ONLY for writable GAs. Status / feedback
+        // group addresses are read-only by convention; auto-generating a
+        // write button for them is a footgun. The all-from-ETS listener
+        // already covers them on the read side, so they're still visible
+        // in the bus monitor / debug stream — they just don't get an
+        // inject wired to the writer.
+        //
+        // Word-boundary regex: matches "status" or "sts" at the end of the
+        // name only when it's a separate word, not a substring (so "Total
+        // Costs" or "Tests Setup" won't get mistakenly skipped).
+        function isStatusGa(e) {
+          var name = (e.name || '').trim();
+          return /\b(status|sts)\s*$/i.test(name);
+        }
+        var writableEntries = entries.filter(function (e) { return !isStatusGa(e); });
+        var skipped = entries.length - writableEntries.length;
+
+        // Layout: column starting at y=200, 50px row height, wrap into the
+        // next column after ~30 entries to keep the canvas usable.
+        var INJECTS_PER_COLUMN = 30;
+        var ROW_HEIGHT = 50;
+        var COLUMN_WIDTH = 240;
+        for (var i = 0; i < writableEntries.length; i++) {
+          var e = writableEntries[i];
+          var col = Math.floor(i / INJECTS_PER_COLUMN);
+          var row = i % INJECTS_PER_COLUMN;
+          var x = 160 + col * COLUMN_WIDTH;
+          var y = 200 + row * ROW_HEIGHT;
+          var label = (e.name || e.ga) + ' (' + e.ga + ')';
+          if (label.length > 40) label = label.slice(0, 37) + '…';
+          nodes.push({
+            id: makeId(),
+            type: 'inject',
+            z: tabId,
+            name: label,
+            props: [
+              { p: 'payload' },
+              { p: 'topic', vt: 'str' },
+            ],
+            repeat: '',
+            crontab: '',
+            once: false,
+            onceDelay: 0.1,
+            topic: e.ga,
+            payload: '',
+            payloadType: 'str',
+            x: x,
+            y: y,
+            wires: [[writerId]],
+          });
+        }
+
+        return { tab: tab, nodes: nodes, skipped: skipped };
+      }
+
+      $scaffold.on('click', function () {
+        var entriesJson = ($entries.val() || '').trim();
+        if (!entriesJson) {
+          RED.notify('Load a project first', { type: 'warning', timeout: 5000 });
+          return;
+        }
+        var entries;
+        try { entries = JSON.parse(entriesJson); } catch (e) {
+          RED.notify('parsedEntries is not valid JSON', { type: 'error' });
+          return;
+        }
+        if (!Array.isArray(entries) || entries.length === 0) {
+          RED.notify('No group addresses to scaffold', { type: 'warning' });
+          return;
+        }
+        if (entries.length > 500) {
+          if (!window.confirm(
+            'This will create ' + entries.length + ' inject nodes on a new tab. ' +
+            'That is a lot — Node-RED will be sluggish. Continue?',
+          )) return;
+        }
+
+        pickTunnelConfig(function (tunnel) {
+          if (!tunnel) {
+            RED.notify('Cancelled — no tunnel selected', { type: 'warning' });
+            return;
+          }
+
+          // Read project name + this ETS-config id directly from the live form.
+          var nameEl = document.getElementById('node-config-input-name');
+          var projectName = (nameEl && nameEl.value) ? nameEl.value : null;
+
+          var built = buildStarterFlow(entries, tunnel.id, thisNodeId, projectName);
+
+          // Use RED.nodes.import() — same code path Node-RED uses for paste /
+          // import-from-clipboard. It validates each item, attaches `_def`,
+          // adds to the model, and registers links in one pass. Building
+          // ad-hoc with RED.nodes.add() works in some Node-RED builds but
+          // silently drops nodes in others (the symptom: an empty tab).
+          var flowArr = [built.tab].concat(built.nodes);
+          try {
+            var imported = RED.nodes.import(flowArr, { generateIds: false });
+            // Some Node-RED builds return { nodes, links, ... }; older ones
+            // return an array. Normalise.
+            var importedNodes =
+              (imported && imported.nodes) ? imported.nodes :
+              Array.isArray(imported) ? imported : [];
+            RED.workspaces.show(built.tab.id);
+            RED.nodes.dirty(true);
+            if (RED.view && typeof RED.view.redraw === 'function') {
+              RED.view.redraw(true);
+            }
+            // Push to history so the user can Undo the whole scaffold.
+            if (RED.history && typeof RED.history.push === 'function') {
+              try {
+                RED.history.push({
+                  t: 'add',
+                  nodes: importedNodes,
+                  workspaces: [built.tab],
+                  dirty: false,
+                });
+              } catch (_) { /* older RED — non-fatal */ }
+            }
+            var skippedNote = built.skipped
+              ? ' (skipped ' + built.skipped + ' read-only Status/Sts GA' +
+                (built.skipped === 1 ? '' : 's') + ')'
+              : '';
+            RED.notify(
+              'Generated ' + flowArr.length + ' items on tab "' + built.tab.label +
+              '" using tunnel "' + (tunnel.name || tunnel.gatewayIp) + '"' +
+              skippedNote + '. Click Deploy to push.',
+              { type: 'success', timeout: 7000 },
+            );
+          } catch (err) {
+            console.error('[knxip] scaffold import failed', err, flowArr);
+            RED.notify(
+              'Scaffold import failed: ' + (err && err.message ? err.message : err) +
+              ' — check the browser console for details.',
+              { type: 'error', timeout: 8000 },
+            );
+          }
+        });
+      });
+
+      // ---- KNX → MQTT bridge generator ----
+      var $bridge = $('#ets-config-bridge');
+
+      function refreshBridgeEnabled() {
+        $bridge.prop('disabled', !((($entries.val() || '').trim()).length > 0));
+      }
+      $entries.on('change', refreshBridgeEnabled);
+      refreshBridgeEnabled();
+      setTimeout(refreshBridgeEnabled, 50);
+      setTimeout(refreshBridgeEnabled, 250);
+
+      function listAllTunnels() {
+        var seen = {};
+        var tunnels = [];
+        function maybeAdd(c) {
+          if (!c || c.type !== 'eelectron-knxip-config' || seen[c.id]) return;
+          seen[c.id] = true;
+          tunnels.push(c);
+        }
+        if (RED.nodes && typeof RED.nodes.eachConfig === 'function') {
+          try { RED.nodes.eachConfig(maybeAdd); } catch (_) {}
+        }
+        if (RED.nodes && typeof RED.nodes.eachNode === 'function') {
+          try { RED.nodes.eachNode(maybeAdd); } catch (_) {}
+        }
+        return tunnels;
+      }
+
+      function showBridgeModal(tunnels, onConfirm) {
+        // Build a one-shot modal with checkboxes for each tunnel + a confirm
+        // button. Using jQuery-UI dialog because Node-RED already pulls it in
+        // for autocomplete; no extra dep.
+        var $dlg = $(
+          '<div title="Generate KNX → MQTT bridge">' +
+          '<p style="margin:0 0 8px 0;">Pick which KNX/IP tunnels feed this bridge. ' +
+          'Each picked tunnel becomes an "all from ETS" listener wired into a single ' +
+          'MQTT-publish node (which filters on this ETS project) and finally an ' +
+          '<code>mqtt out</code> stub for you to point at your broker.</p>' +
+          '<div id="knxip-bridge-tunnel-list" style="max-height:240px;overflow:auto;border:1px solid #ccc;padding:6px 10px;"></div>' +
+          '</div>',
+        );
+        var $list = $dlg.find('#knxip-bridge-tunnel-list');
+        tunnels.forEach(function (t, idx) {
+          var label =
+            (t.name || (t.gatewayIp + ':' + (t.gatewayPort || 3671))) +
+            (t.gatewayIp ? '  ' + t.gatewayIp + ':' + (t.gatewayPort || 3671) : '');
+          var $row = $('<label style="display:block;padding:2px 0;"></label>');
+          $row.append(
+            $('<input type="checkbox" />')
+              .attr('data-id', t.id)
+              .prop('checked', true)
+              .css('margin-right', '6px'),
+          );
+          $row.append(document.createTextNode(label));
+          $list.append($row);
+          void idx;
+        });
+        $dlg.dialog({
+          modal: true,
+          width: 460,
+          buttons: {
+            Generate: function () {
+              var picked = [];
+              $list.find('input[type="checkbox"]:checked').each(function () {
+                var id = $(this).attr('data-id');
+                var t = tunnels.filter(function (x) { return x.id === id; })[0];
+                if (t) picked.push(t);
+              });
+              $(this).dialog('close');
+              if (picked.length === 0) {
+                RED.notify('No tunnels selected — bridge not generated', { type: 'warning' });
+                return;
+              }
+              onConfirm(picked);
+            },
+            Cancel: function () { $(this).dialog('close'); },
+          },
+          close: function () { $dlg.remove(); },
+        });
+      }
+
+      function buildBridgeFlow(pickedTunnels, etsConfigId, projectName) {
+        var tabId = makeId();
+        var tabLabel = 'KNX → MQTT — ' + (projectName || 'bridge');
+        var tab = {
+          id: tabId,
+          type: 'tab',
+          label: tabLabel,
+          disabled: false,
+          info:
+            'Auto-generated KNX → MQTT publishing bridge for project "' +
+            (projectName || '?') + '".\n\n' +
+            'Each selected tunnel runs an all-from-ETS listener; their output merges into ' +
+            'a single mqtt-publish node that filters on this ETS project and reshapes the ' +
+            'message for the broker. Wire the mqtt-out stub on the right to your broker config ' +
+            '(double-click it, set Server / topic-stub / QoS) and click Deploy.',
+        };
+        var nodes = [];
+
+        nodes.push({
+          id: makeId(),
+          type: 'comment',
+          z: tabId,
+          name: 'Auto-generated KNX → MQTT bridge — point the mqtt-out at your broker',
+          info: '',
+          x: 280,
+          y: 40,
+          wires: [],
+        });
+
+        // Centre column: mqtt-publish + mqtt-out.
+        var publishId = makeId();
+        var mqttOutId = makeId();
+        nodes.push({
+          id: publishId,
+          type: 'eelectron-knxip-mqtt-publish',
+          z: tabId,
+          name: '',
+          etsConfig: etsConfigId,
+          topicTemplate: 'knx/{ga}',
+          payloadMode: 'object',
+          payloadTemplate: '',
+          forwardUnknown: false,
+          x: 540,
+          y: 140,
+          wires: [[mqttOutId]],
+        });
+        nodes.push({
+          id: mqttOutId,
+          type: 'mqtt out',
+          z: tabId,
+          name: '',
+          topic: '',
+          qos: '0',
+          retain: '',
+          respTopic: '',
+          contentType: '',
+          userProps: '',
+          correl: '',
+          expiry: '',
+          broker: '',
+          x: 760,
+          y: 140,
+          wires: [],
+        });
+
+        // Left column: one listener per picked tunnel.
+        var ROW = 70;
+        for (var i = 0; i < pickedTunnels.length; i++) {
+          var t = pickedTunnels[i];
+          nodes.push({
+            id: makeId(),
+            type: 'eelectron-knxip-listener',
+            z: tabId,
+            name: t.name || t.gatewayIp,
+            config: t.id,
+            etsConfig: etsConfigId,
+            subscribeAllFromEts: true,
+            groupAddresses: '',
+            dpt: '',
+            readOnConnect: false,
+            readDelayMs: 100,
+            readMaxCount: 200,
+            x: 200,
+            y: 140 + i * ROW,
+            wires: [[publishId]],
+          });
+        }
+        return { tab: tab, nodes: nodes };
+      }
+
+      $bridge.on('click', function () {
+        var entriesJson = ($entries.val() || '').trim();
+        if (!entriesJson) {
+          RED.notify('Load a project first', { type: 'warning' });
+          return;
+        }
+        var tunnels = listAllTunnels();
+        if (tunnels.length === 0) {
+          RED.notify('Configure at least one KNX/IP tunnel first', { type: 'warning' });
+          return;
+        }
+        showBridgeModal(tunnels, function (picked) {
+          var nameEl = document.getElementById('node-config-input-name');
+          var projectName = (nameEl && nameEl.value) ? nameEl.value : null;
+          var built = buildBridgeFlow(picked, thisNodeId, projectName);
+          var flowArr = [built.tab].concat(built.nodes);
+          try {
+            var imported = RED.nodes.import(flowArr, { generateIds: false });
+            var importedNodes =
+              (imported && imported.nodes) ? imported.nodes :
+              Array.isArray(imported) ? imported : [];
+            RED.workspaces.show(built.tab.id);
+            RED.nodes.dirty(true);
+            if (RED.view && typeof RED.view.redraw === 'function') RED.view.redraw(true);
+            if (RED.history && typeof RED.history.push === 'function') {
+              try {
+                RED.history.push({
+                  t: 'add',
+                  nodes: importedNodes,
+                  workspaces: [built.tab],
+                  dirty: false,
+                });
+              } catch (_) {}
+            }
+            RED.notify(
+              'Bridge generated on tab "' + built.tab.label + '" — ' +
+              picked.length + ' listener(s) wired into mqtt-publish. ' +
+              'Open the mqtt-out node, point it at your broker, then Deploy.',
+              { type: 'success', timeout: 8000 },
+            );
+          } catch (err) {
+            console.error('[knxip] bridge import failed', err, flowArr);
+            RED.notify(
+              'Bridge import failed: ' + (err && err.message ? err.message : err),
+              { type: 'error', timeout: 8000 },
+            );
+          }
+        });
+      });
+
       refreshStatus();
     },
   });
@@ -324,6 +847,24 @@
   <div class="form-row" style="margin-top:-6px;">
     <label></label>
     <span id="ets-config-status" style="color:#888;font-style:italic;">No project data loaded</span>
+  </div>
+  <div class="form-row">
+    <label></label>
+    <button type="button" class="red-ui-button" id="ets-config-scaffold" disabled>
+      <i class="fa fa-magic"></i> Generate starter flow
+    </button>
+    <span style="color:#888;font-style:italic;margin-left:8px;">
+      a listener + writer + one inject per writable GA on a new tab
+    </span>
+  </div>
+  <div class="form-row" style="margin-top:-6px;">
+    <label></label>
+    <button type="button" class="red-ui-button" id="ets-config-bridge" disabled>
+      <i class="fa fa-share-alt"></i> Generate KNX → MQTT bridge
+    </button>
+    <span style="color:#888;font-style:italic;margin-left:8px;">
+      pick which tunnels to publish from; output goes to an MQTT-out stub
+    </span>
   </div>
   <div class="form-row" style="margin-bottom: 0;">
     <label for="node-config-input-csvData"><i class="fa fa-file-text-o"></i> CSV content</label>

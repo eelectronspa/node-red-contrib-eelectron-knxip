@@ -16,6 +16,16 @@ export interface KnxConfigNode {
   client: TunnelClient;
   /** GA formatting style chosen in the editor. Used by listener/writer to parse user input. */
   groupAddressStyle: GroupAddressStyle;
+  /**
+   * User-facing label — the node `name` if set, falling back to
+   * `gatewayIp:gatewayPort`. Surfaced by listener output as `msg.knx.tunnel.label`
+   * so downstream nodes (notably mqtt-publish) can route or label by source.
+   */
+  gatewayLabel: string;
+  /** Configured gateway IPv4 address. */
+  gatewayIp: string;
+  /** Configured gateway port (defaults to 3671). */
+  gatewayPort: number;
   /** Connect-on-first-attach / disconnect-on-last-detach ref-counting. */
   attach(childId: string): void;
   detach(childId: string): void;

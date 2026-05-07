@@ -1,0 +1,57 @@
+<script type="text/javascript">
+  RED.nodes.registerType('eelectron-knxip-dedupe', {
+    category: 'eelectron-knxip',
+    color: '#9CC78B',
+    defaults: {
+      name: { value: '' },
+      windowMs: { value: 1000, validate: RED.validators.number() },
+      perTopic: { value: true },
+    },
+    inputs: 1,
+    outputs: 1,
+    icon: 'KNX_logo.svg',
+    paletteLabel: 'dedupe',
+    align: 'left',
+    label: function () {
+      return this.name || 'knx dedupe ' + (this.windowMs || 1000) + 'ms';
+    },
+  });
+</script>
+
+<script type="text/html" data-template-name="eelectron-knxip-dedupe">
+  <div class="form-row">
+    <label for="node-input-name"><i class="fa fa-tag"></i> Name</label>
+    <input type="text" id="node-input-name" />
+  </div>
+  <div class="form-row">
+    <label for="node-input-windowMs"><i class="fa fa-clock-o"></i> Window (ms)</label>
+    <input type="number" id="node-input-windowMs" min="0" />
+  </div>
+  <div class="form-row">
+    <label for="node-input-perTopic"><i class="fa fa-list"></i> Per topic</label>
+    <input type="checkbox" id="node-input-perTopic" style="width:auto" />
+    <span style="color:#888;font-style:italic;margin-left:8px;">untick for one global bucket across all topics</span>
+  </div>
+</script>
+
+<script type="text/html" data-help-name="eelectron-knxip-dedupe">
+  <p>Drops repeat <code>(topic, payload)</code> messages that arrive within the
+  configured time window. Useful for cleaning a noisy listener (some KNX
+  devices re-send the same value periodically even when nothing changes) and
+  for breaking write → listener feedback loops where a gateway echoes your
+  own write back into the flow.</p>
+
+  <h3>How equality is decided</h3>
+  <ul>
+    <li>Primitives (numbers, booleans, strings) compare by value.</li>
+    <li>Buffers compare byte-for-byte.</li>
+    <li>Objects (e.g. DPT 10 time, DPT 11 date, DPT 232 RGB) compare by
+      canonicalised JSON, so <code>{r:1,g:2}</code> and <code>{g:2,r:1}</code>
+      are treated as equal.</li>
+  </ul>
+
+  <h3>Window behaviour</h3>
+  <p>The window is sliding: if identical messages keep arriving, the window
+  keeps rolling. The first non-equal message always passes, regardless of how
+  many duplicates were dropped before it.</p>
+</script>

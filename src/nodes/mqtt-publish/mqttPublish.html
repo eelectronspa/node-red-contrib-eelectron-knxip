@@ -1,0 +1,163 @@
+<script type="text/javascript">
+  RED.nodes.registerType('eelectron-knxip-mqtt-publish', {
+    category: 'eelectron-knxip',
+    color: '#9CC78B',
+    defaults: {
+      name: { value: '' },
+      etsConfig: { value: '', type: 'eelectron-knxip-ets-config', required: true },
+      topicTemplate: { value: 'knx/{ga}' },
+      payloadMode: { value: 'object' },
+      payloadTemplate: {
+        value: '{\n  "value": "{value}",\n  "ga": "{ga}",\n  "name": "{gaName}",\n  "ts": "{ts}"\n}',
+      },
+      forwardUnknown: { value: false },
+    },
+    inputs: 1,
+    outputs: 1,
+    icon: 'KNX_logo.svg',
+    paletteLabel: 'mqtt-publish',
+    align: 'right',
+    label: function () {
+      return this.name || 'knx → mqtt';
+    },
+    oneditprepare: function () {
+      var $mode = $('#node-input-payloadMode');
+      var $tplRow = $('.knxip-mqttpub-template-row');
+      function syncMode() {
+        $tplRow.toggle(($mode.val() || 'object') === 'template');
+      }
+      $mode.on('change', syncMode);
+      syncMode();
+    },
+  });
+</script>
+
+<script type="text/html" data-template-name="eelectron-knxip-mqtt-publish">
+  <div class="form-row">
+    <label for="node-input-name"><i class="fa fa-tag"></i> Name</label>
+    <input type="text" id="node-input-name" />
+  </div>
+  <div class="form-row">
+    <label for="node-input-etsConfig"><i class="fa fa-book"></i> ETS project</label>
+    <input type="text" id="node-input-etsConfig" />
+  </div>
+  <div class="form-row">
+    <label for="node-input-topicTemplate"><i class="fa fa-globe"></i> Topic</label>
+    <input type="text" id="node-input-topicTemplate"
+      placeholder='knx/{ga} — see help: {ga}, {gaDots}, {gaName}, {gaNameSlug}, {dpt}, {source}, {tunnel}, {tunnelSlug}, …' />
+  </div>
+  <div class="form-row" style="margin-top:-6px;">
+    <label></label>
+    <span style="color:#888;font-style:italic;">
+      MQTT brokers tree topics on <code>/</code>. <code>{ga}</code> = <code>1/1/29</code>
+      becomes a 4-level branch; use <code>{gaDots}</code> (1.1.29) or
+      <code>{gaNameSlug}</code> (workshop-on-off-status) for a flat topic.
+    </span>
+  </div>
+  <div class="form-row">
+    <label for="node-input-payloadMode"><i class="fa fa-code"></i> Payload</label>
+    <select id="node-input-payloadMode" style="width: auto;">
+      <option value="value">Value only — msg.payload as-is</option>
+      <option value="object">Object — { value, ga, gaName, dpt, source, ts }</option>
+      <option value="template">JSON template — full control</option>
+    </select>
+  </div>
+  <div class="form-row knxip-mqttpub-template-row" style="display:none;">
+    <label for="node-input-payloadTemplate"><i class="fa fa-code"></i> Template</label>
+    <textarea id="node-input-payloadTemplate" rows="6"
+      style="width:100%; font-family: var(--red-ui-monospace-font, monospace); font-size:12px;"
+      placeholder='{ "value": "{value}", "ga": "{ga}", "name": "{gaName}" }'></textarea>
+  </div>
+  <div class="form-row" style="margin-top:-6px;" class="knxip-mqttpub-template-row">
+    <label></label>
+    <span style="color:#888; font-style:italic;">
+      A string that's *exactly* <code>"{key}"</code> is replaced with the typed value
+      (so <code>"value": "{value}"</code> emits a number / bool / object correctly).
+      Strings with placeholders embedded are interpolated as text.
+    </span>
+  </div>
+  <div class="form-row">
+    <label for="node-input-forwardUnknown"><i class="fa fa-share"></i> Unknown GAs</label>
+    <input type="checkbox" id="node-input-forwardUnknown" style="width:auto;" />
+    <span style="color:#888;font-style:italic;margin-left:8px;">
+      forward telegrams whose GA isn't in the bound ETS project (default: drop)
+    </span>
+  </div>
+</script>
+
+<script type="text/html" data-help-name="eelectron-knxip-mqtt-publish">
+  <p>Filter and reshape KNX listener output for an <code>mqtt out</code> node.
+  Only forwards telegrams whose group address exists in the bound ETS project,
+  so you can wire several listeners (one per tunnel) into a single bridge
+  point and still publish a clean, project-scoped MQTT stream.</p>
+
+  <h3>Topic template</h3>
+  <p>Free-text. Curly-brace placeholders are substituted at publish time:</p>
+  <ul>
+    <li><code>{ga}</code> — KNX long-form group address (e.g. <code>1/1/29</code>).
+      <i>Note:</i> MQTT brokers split on <code>/</code> for topic levels, so
+      <code>knx/{ga}</code> becomes a four-level branch. Use a flat
+      placeholder below if you want a single-level topic.</li>
+    <li><code>{gaDots}</code> — same GA with dots (<code>1.1.29</code>).
+      Single-level topic — won't tree.</li>
+    <li><code>{gaDashes}</code> — dashes (<code>1-1-29</code>).</li>
+    <li><code>{gaRaw}</code> — 16-bit raw form (<code>8221</code>).</li>
+    <li><code>{gaName}</code> — friendly name from the ETS map.
+      <i>Note:</i> names often contain spaces and slashes; prefer the slug
+      below for URL/topic safety.</li>
+    <li><code>{gaNameSlug}</code> — lowercased, slashes/spaces → dashes,
+      special characters stripped. E.g. <code>"Workshop On/Off Status"</code>
+      → <code>workshop-on-off-status</code>. Drop-in for HA-style topics.</li>
+    <li><code>{dpt}</code> — DPT id.</li>
+    <li><code>{source}</code> — source individual address (the <i>device</i>
+      that wrote the telegram, e.g. <code>1.1.5</code>).</li>
+    <li><code>{tunnel}</code> — name of the KNX/IP interface the telegram
+      came in through (the <code>name</code> field of the tunnel-config node,
+      falling back to its IP). E.g. <code>"Living room"</code>.</li>
+    <li><code>{tunnelSlug}</code> — slugified version of the above; safe
+      for topics. E.g. <code>"living-room"</code>.</li>
+    <li><code>{tunnelIp}</code> — gateway IP, e.g. <code>192.168.1.141</code>.</li>
+    <li><code>{tunnelPort}</code> — gateway port (usually <code>3671</code>).</li>
+    <li><code>{tunnelHost}</code> — <code>{tunnelIp}:{tunnelPort}</code>.</li>
+    <li><code>{tunnelId}</code> — Node-RED config-node id (stable across deploys).</li>
+    <li><code>{ts}</code> — ISO timestamp.</li>
+  </ul>
+  <p>Default: <code>knx/{ga}</code>. Common alternatives:</p>
+  <ul>
+    <li><code>knx/{gaDots}</code> — flat, no tree.</li>
+    <li><code>home/knx/{gaNameSlug}</code> — HA-friendly.</li>
+    <li><code>knx/{dpt}/{ga}</code> — per-DPT subtree.</li>
+    <li><code>knx/{tunnelSlug}/{ga}</code> — separate prefix per IP interface
+      so a multi-tunnel bridge can be split per-broker or per-site.</li>
+  </ul>
+
+  <h3>Payload modes</h3>
+  <ul>
+    <li><b>Value only</b> — passes <code>msg.payload</code> through unchanged.
+      Useful when you've already decoded the value and want it raw on MQTT.</li>
+    <li><b>Object</b> (default) — emits
+      <code>{ value, ga, gaName, dpt, source, ts }</code>. Drop-in shape for
+      most home-automation MQTT consumers.</li>
+    <li><b>JSON template</b> — full control. Type a JSON document; placeholders
+      apply two ways:
+      <ul>
+        <li>A string that's <i>exactly</i> <code>"{key}"</code> is replaced
+          with the typed value — so <code>"{value}"</code> stays a number,
+          boolean, or object on the wire.</li>
+        <li>Strings with embedded placeholders interpolate as text:
+          <code>"hello {gaName}!"</code>.</li>
+      </ul>
+    </li>
+  </ul>
+
+  <h3>Filter</h3>
+  <p>By default, telegrams whose GA is not in the bound ETS project are
+  silently dropped (the bridge's whole reason for existing). Tick
+  <b>Unknown GAs</b> to forward them too — they get an empty <code>gaName</code>
+  / <code>dpt</code>.</p>
+
+  <h3>Output</h3>
+  <p>Single output, single field shape: <code>{ topic, payload }</code>. Every
+  other inbound message field is stripped — no risk of leaking raw APDU /
+  channel-id details to the broker. Wire straight into <code>mqtt out</code>.</p>
+</script>

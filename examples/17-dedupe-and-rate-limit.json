@@ -1,0 +1,112 @@
+[
+  {
+    "id": "ex17-tab",
+    "type": "tab",
+    "label": "KNX/IP — dedupe + rate-limit",
+    "disabled": false,
+    "info": "Two filters that solve the most common KNX flow pathologies.\n\n**Dedupe** — drop repeat (topic, payload) pairs within a window. Useful when a device re-sends the same value every few seconds even though nothing changed, or when a writer's own write echoes back through the listener and would otherwise drive the next write.\n\n**Rate-limit** — cap msgs/window per topic, dropping anything in excess. Useful when a flow loop or an over-eager source could storm the bus.\n\nBoth nodes are payload-agnostic — wire them on the listener output (to clean inbound data), on the writer input (to protect outbound traffic), or anywhere a flow needs throttling."
+  },
+  {
+    "id": "ex17-listener",
+    "type": "eelectron-knxip-listener",
+    "z": "ex17-tab",
+    "name": "all GAs",
+    "config": "",
+    "groupAddresses": "",
+    "dpt": "",
+    "x": 130,
+    "y": 100,
+    "wires": [["ex17-dedupe"]]
+  },
+  {
+    "id": "ex17-dedupe",
+    "type": "eelectron-knxip-dedupe",
+    "z": "ex17-tab",
+    "name": "dedupe 5s",
+    "windowMs": 5000,
+    "perTopic": true,
+    "x": 320,
+    "y": 100,
+    "wires": [["ex17-debug-clean"]]
+  },
+  {
+    "id": "ex17-debug-clean",
+    "type": "debug",
+    "z": "ex17-tab",
+    "name": "clean stream",
+    "active": true,
+    "tosidebar": true,
+    "complete": "true",
+    "targetType": "full",
+    "x": 540,
+    "y": 100,
+    "wires": []
+  },
+  {
+    "id": "ex17-comment-rl",
+    "type": "comment",
+    "z": "ex17-tab",
+    "name": "Outbound rate-limit example",
+    "info": "",
+    "x": 200,
+    "y": 200,
+    "wires": []
+  },
+  {
+    "id": "ex17-input",
+    "type": "inject",
+    "z": "ex17-tab",
+    "name": "burst",
+    "props": [
+      { "p": "payload" },
+      { "p": "topic", "vt": "str" }
+    ],
+    "repeat": "0.05",
+    "crontab": "",
+    "once": false,
+    "topic": "1/1/29",
+    "payload": "true",
+    "payloadType": "bool",
+    "x": 130,
+    "y": 260,
+    "wires": [["ex17-rl"]]
+  },
+  {
+    "id": "ex17-rl",
+    "type": "eelectron-knxip-rate-limit",
+    "z": "ex17-tab",
+    "name": "max 2 / sec",
+    "maxPerWindow": 2,
+    "windowMs": 1000,
+    "perTopic": true,
+    "exposeDropped": true,
+    "x": 320,
+    "y": 260,
+    "wires": [["ex17-writer"], ["ex17-debug-drop"]]
+  },
+  {
+    "id": "ex17-writer",
+    "type": "eelectron-knxip-writer",
+    "z": "ex17-tab",
+    "name": "",
+    "config": "",
+    "groupAddress": "",
+    "dpt": "",
+    "x": 540,
+    "y": 240,
+    "wires": []
+  },
+  {
+    "id": "ex17-debug-drop",
+    "type": "debug",
+    "z": "ex17-tab",
+    "name": "dropped",
+    "active": true,
+    "tosidebar": true,
+    "complete": "payload",
+    "targetType": "msg",
+    "x": 540,
+    "y": 280,
+    "wires": []
+  }
+]

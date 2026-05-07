@@ -84,6 +84,12 @@ export = function (RED: NodeAPI) {
           raw: apdu,
           isResponse: apci.kind === 'GroupValueResponse',
           priority: PRIORITY_NAMES[(data.flags & 0x0c00) >> 10] ?? 'unknown',
+          tunnel: {
+            id: cfg.id,
+            label: cfg.gatewayLabel,
+            gatewayIp: cfg.gatewayIp,
+            gatewayPort: cfg.gatewayPort,
+          },
         },
         // satisfy NodeMessage open-shape:
       } as unknown as Parameters<typeof self.send>[0]);

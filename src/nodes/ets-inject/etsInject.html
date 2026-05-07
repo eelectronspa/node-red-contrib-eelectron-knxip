@@ -160,6 +160,24 @@
         e.preventDefault();
         $payload.val('false').trigger('change');
       });
+
+      // Trigger-options collapsible: stays open if any non-default value is
+      // already set so users editing repeat / fire-on-deploy don't need to
+      // re-open it after every save.
+      var $adv = $('.knxip-ets-inject-advanced');
+      var $advBtn = $('#ets-inject-advanced-toggle');
+      var advOpen = !!(this.repeatMs && Number(this.repeatMs) > 0) ||
+        this.once === true ||
+        (this.onceDelayMs && Number(this.onceDelayMs) !== 100);
+      function syncAdv() {
+        $adv.toggle(advOpen);
+        $advBtn.html(
+          (advOpen ? '<i class="fa fa-caret-down"></i>' : '<i class="fa fa-caret-right"></i>') +
+          ' Trigger options (repeat / fire on deploy)',
+        );
+      }
+      $advBtn.on('click', function (e) { e.preventDefault(); advOpen = !advOpen; syncAdv(); });
+      syncAdv();
     },
   });
 </script>
@@ -196,18 +214,25 @@
     </span>
   </div>
 
-  <hr />
-  <div class="form-row">
-    <label for="node-input-repeatMs"><i class="fa fa-clock-o"></i> Repeat (ms)</label>
-    <input type="number" id="node-input-repeatMs" min="0" placeholder="0 = manual trigger only" />
+  <div class="form-row" style="margin-top:8px;">
+    <label></label>
+    <a href="#" id="ets-inject-advanced-toggle" style="text-decoration:none;color:#888;">
+      <i class="fa fa-caret-right"></i> Trigger options (repeat / fire on deploy)
+    </a>
   </div>
-  <div class="form-row">
-    <label for="node-input-once"><i class="fa fa-bolt"></i> Fire on deploy</label>
-    <input type="checkbox" id="node-input-once" style="width:auto" />
-  </div>
-  <div class="form-row">
-    <label for="node-input-onceDelayMs"><i class="fa fa-clock-o"></i> Deploy delay (ms)</label>
-    <input type="number" id="node-input-onceDelayMs" min="0" />
+  <div class="knxip-ets-inject-advanced" style="display:none;">
+    <div class="form-row">
+      <label for="node-input-repeatMs"><i class="fa fa-clock-o"></i> Repeat (ms)</label>
+      <input type="number" id="node-input-repeatMs" min="0" placeholder="0 = manual trigger only" />
+    </div>
+    <div class="form-row">
+      <label for="node-input-once"><i class="fa fa-bolt"></i> Fire on deploy</label>
+      <input type="checkbox" id="node-input-once" style="width:auto" />
+    </div>
+    <div class="form-row">
+      <label for="node-input-onceDelayMs"><i class="fa fa-clock-o"></i> Deploy delay (ms)</label>
+      <input type="number" id="node-input-onceDelayMs" min="0" />
+    </div>
   </div>
 </script>
 

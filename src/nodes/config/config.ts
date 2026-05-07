@@ -71,6 +71,35 @@ export = function (RED: NodeAPI) {
     },
   );
 
+  // Per-tunnel diagnostics — counters + last-seen timestamps for every
+  // configured tunnel-config in the workspace. The bus-monitor sidebar polls
+  // this every couple of seconds; cheap because each `getDiagnostics()` is
+  // O(1) field reads.
+  RED.httpAdmin.get(
+    '/eelectron-knxip/diagnostics',
+    RED.auth.needsPermission('flows.read'),
+    (_req, res) => {
+      const tunnels: Array<Record<string, unknown>> = [];
+      RED.nodes.eachNode((cfg: { id: string; type: string; name?: string }) => {
+        if (cfg.type !== 'eelectron-knxip-config') return;
+        const node = RED.nodes.getNode(cfg.id) as unknown as
+          | (KnxConfigNode & { id: string })
+          | null;
+        if (!node?.client) return;
+        try {
+          tunnels.push({
+            id: cfg.id,
+            label: cfg.name || node.client.getDiagnostics().gatewayIp,
+            ...node.client.getDiagnostics(),
+          });
+        } catch {
+          /* tunnel mid-construction; skip */
+        }
+      });
+      res.json({ tunnels });
+    },
+  );
+
   RED.httpAdmin.get(
     '/eelectron-knxip/monitor/stream',
     RED.auth.needsPermission('flows.read'),
@@ -245,6 +274,9 @@ export = function (RED: NodeAPI) {
     const refs = new Set<string>();
     self.client = client;
     self.groupAddressStyle = def.groupAddressStyle ?? 'long';
+    self.gatewayLabel = tunnelLabel;
+    self.gatewayIp = def.gatewayIp;
+    self.gatewayPort = toNumber(def.gatewayPort, 3671);
 
     self.attach = (childId: string) => {
       if (refs.size === 0) {
