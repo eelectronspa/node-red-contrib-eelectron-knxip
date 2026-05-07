@@ -1,7 +1,7 @@
 // SECURE_WRAPPER (0x0950) — outer envelope for every authenticated KNX/IP
 // frame in a Secure Tunneling / Secure Routing session.
 //
-// Copyright 2026 Jamel Nacef <jamel.nacef@eelectron.com>
+// Author: Jamel Nacef <jamel.nacef@eelectron.com>
 // SPDX-License-Identifier: Apache-2.0
 //
 // Wire layout (all big-endian):

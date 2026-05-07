@@ -1,7 +1,7 @@
 // Minimal ZIP central-directory reader + WinZip AES (AE-2) decryptor for the
 // inner archive ETS6 places inside .knxproj exports.
 //
-// Copyright 2026 Jamel Nacef <jamel.nacef@eelectron.com>
+// Author: Jamel Nacef <jamel.nacef@eelectron.com>
 // SPDX-License-Identifier: Apache-2.0
 //
 // The .knxproj outer ZIP is unencrypted but it only contains catalog data

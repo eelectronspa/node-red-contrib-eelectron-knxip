@@ -1,6 +1,6 @@
 // Crypto primitives for KNX/IP Secure.
 //
-// Copyright 2026 Jamel Nacef <jamel.nacef@eelectron.com>
+// Author: Jamel Nacef <jamel.nacef@eelectron.com>
 // SPDX-License-Identifier: Apache-2.0
 //
 // All algorithms are implemented strictly from public specifications:

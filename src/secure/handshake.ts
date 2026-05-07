@@ -1,6 +1,6 @@
 // KNX/IP Secure handshake MAC helpers.
 //
-// Copyright 2026 Jamel Nacef <jamel.nacef@eelectron.com>
+// Author: Jamel Nacef <jamel.nacef@eelectron.com>
 // SPDX-License-Identifier: Apache-2.0
 //
 // The handshake MAC is computed as a KNX-flavoured CBC-MAC and then encrypted
