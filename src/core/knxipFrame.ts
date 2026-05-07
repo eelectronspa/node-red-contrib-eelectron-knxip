@@ -17,6 +17,12 @@ import { DisconnectRequest } from './bodies/disconnectRequest';
 import { DisconnectResponse } from './bodies/disconnectResponse';
 import { SearchRequest } from './bodies/searchRequest';
 import { SearchResponse } from './bodies/searchResponse';
+import { SecureWrapper } from './bodies/secureWrapper';
+import { SessionAuthenticate } from './bodies/sessionAuthenticate';
+import { SessionRequest } from './bodies/sessionRequest';
+import { SessionResponse } from './bodies/sessionResponse';
+import { SessionStatus } from './bodies/sessionStatus';
+import { TimerNotify } from './bodies/timerNotify';
 import { TunnellingAck } from './bodies/tunnellingAck';
 import { TunnellingRequest } from './bodies/tunnellingRequest';
 import { CouldNotParseKNXIP, UnsupportedKNXIPService } from './errors';
@@ -93,6 +99,18 @@ function parseBody(
       return SearchRequest.fromKnx(data, offset);
     case ServiceType.SEARCH_RESPONSE:
       return SearchResponse.fromKnx(data, offset);
+    case ServiceType.SECURE_WRAPPER:
+      return SecureWrapper.fromKnx(data, offset);
+    case ServiceType.SESSION_REQUEST:
+      return SessionRequest.fromKnx(data, offset);
+    case ServiceType.SESSION_RESPONSE:
+      return SessionResponse.fromKnx(data, offset);
+    case ServiceType.SESSION_AUTHENTICATE:
+      return SessionAuthenticate.fromKnx(data, offset);
+    case ServiceType.SESSION_STATUS:
+      return SessionStatus.fromKnx(data, offset);
+    case ServiceType.TIMER_NOTIFY:
+      return TimerNotify.fromKnx(data, offset);
     case ServiceType.TUNNELLING_REQUEST:
       return TunnellingRequest.fromKnx(data, offset);
     case ServiceType.TUNNELLING_ACK:

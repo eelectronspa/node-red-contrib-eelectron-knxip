@@ -8,6 +8,12 @@ export { DisconnectRequest } from './disconnectRequest';
 export { DisconnectResponse } from './disconnectResponse';
 export { SearchRequest } from './searchRequest';
 export { SearchResponse } from './searchResponse';
+export { SecureWrapper } from './secureWrapper';
+export { SessionAuthenticate } from './sessionAuthenticate';
+export { SessionRequest } from './sessionRequest';
+export { SessionResponse } from './sessionResponse';
+export { SecureSessionStatus, SessionStatus, secureSessionStatusName } from './sessionStatus';
+export { TimerNotify } from './timerNotify';
 export { TunnellingAck } from './tunnellingAck';
 export { TunnellingRequest } from './tunnellingRequest';
 
@@ -19,6 +25,12 @@ import type { DisconnectRequest } from './disconnectRequest';
 import type { DisconnectResponse } from './disconnectResponse';
 import type { SearchRequest } from './searchRequest';
 import type { SearchResponse } from './searchResponse';
+import type { SecureWrapper } from './secureWrapper';
+import type { SessionAuthenticate } from './sessionAuthenticate';
+import type { SessionRequest } from './sessionRequest';
+import type { SessionResponse } from './sessionResponse';
+import type { SessionStatus } from './sessionStatus';
+import type { TimerNotify } from './timerNotify';
 import type { TunnellingAck } from './tunnellingAck';
 import type { TunnellingRequest } from './tunnellingRequest';
 
@@ -31,5 +43,11 @@ export type KNXIPBody =
   | DisconnectResponse
   | SearchRequest
   | SearchResponse
+  | SecureWrapper
+  | SessionAuthenticate
+  | SessionRequest
+  | SessionResponse
+  | SessionStatus
+  | TimerNotify
   | TunnellingRequest
   | TunnellingAck;
