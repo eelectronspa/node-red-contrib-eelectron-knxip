@@ -89,8 +89,13 @@ export interface SecureTunnelOptions {
   /** Tunnelling user ID (1..127). User 1 is "management" — usually a regular
    *  user (2..127) is what you configure for runtime traffic. */
   userId: number;
-  /** Plaintext device authentication password. */
-  deviceAuthPassword: string;
+  /**
+   * Plaintext device authentication password. Optional: omit for
+   * single-password / non-ETS devices that don't expose a Device Auth Code.
+   * When absent the SESSION_RESPONSE MAC is not verified (see
+   * SecureSessionOptions.deviceAuthPassword for the trade-off).
+   */
+  deviceAuthPassword?: string;
   /** Plaintext user password. */
   userPassword: string;
   /** Optional uint48 sender serial number. Default uses a fixed identifier. */
@@ -997,8 +1002,10 @@ function defaultTransportFactory(opts: TunnelClientOptions): Transport {
 
   return new SecureSession(tcp, {
     userId: opts.secure.userId,
-    deviceAuthPassword: opts.secure.deviceAuthPassword,
     userPassword: opts.secure.userPassword,
+    ...(opts.secure.deviceAuthPassword
+      ? { deviceAuthPassword: opts.secure.deviceAuthPassword }
+      : {}),
     ...(opts.secure.serialNumber !== undefined
       ? { serialNumber: BigInt(opts.secure.serialNumber) }
       : {}),

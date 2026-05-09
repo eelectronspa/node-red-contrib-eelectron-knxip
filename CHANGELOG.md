@@ -3,6 +3,44 @@
 All notable user-facing changes are documented here. Entries follow the
 "keep a changelog" style with semantic versioning.
 
+## [0.9.1] — 2026-05-10
+
+### Added
+- **`eelectron-knxip-mqtt-publish` now decodes payloads via the ETS
+  project's DPT.** Previously the node forwarded whatever the upstream
+  listener emitted, which — when the listener had no DPT pinned —
+  meant raw APDU shapes like `{ kind: 'bytes', value: <Buffer> }`
+  reached the broker. The publish node already knows the per-GA DPT
+  from the bound ETS Project config, so it now uses
+  `getDpt(entry.dpt).decode(...)` to turn those raw APDUs into
+  primitives (e.g. DPT 9.001 → `25`, DPT 1.001 → `true`) before
+  building the MQTT message. Applies to all three payload modes
+  (`value`, `object`, `template`). On unknown DPT or decode failure
+  it falls back to the raw APDU and logs a warning, mirroring the
+  listener's behavior.
+
+### Changed
+- **`Device authentication password` is now optional** in the
+  `eelectron-knxip-config` Secure section. Many non-ETS interfaces
+  (vendor-only web UIs) only expose a single tunnel password and do
+  not surface the Device Authentication Code. Leaving the field blank
+  is now supported: the SESSION_RESPONSE MAC check is skipped (with a
+  warning logged), the encrypted session and SESSION_AUTHENTICATE
+  user-password check still apply. ETS-keyring users are unaffected
+  — when the field is filled, the MAC is verified as before.
+- **Secure tunnel form rewritten for clarity.** The required
+  `User pw` field now appears before the optional `Device auth pw`
+  field and is marked with a red `*`. Placeholders explain each
+  field's role; an inline banner above the password rows explains the
+  two configuration modes (ETS-managed vs. single-password device).
+  The help panel mirrors the same structure. No saved-data migration
+  needed — only field order and labels changed.
+
+### Fixed
+- Removed a startup gate that refused to construct the secure tunnel
+  when `deviceAuthPassword` was empty, even though the code path now
+  supports that case.
+
 ## [0.9.0] — 2026-05-07
 
 ### Added

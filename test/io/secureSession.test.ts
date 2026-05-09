@@ -281,6 +281,24 @@ describe('SecureSession handshake', () => {
     await assert.rejects(session.open(), /SESSION_RESPONSE MAC verification failed/);
   });
 
+  // Single-password / non-ETS devices don't expose a Device Authentication
+  // Code in their UI. When the user omits it, we must skip the
+  // SESSION_RESPONSE MAC check and still complete the handshake — the user
+  // password authenticates the client, and the session is still encrypted.
+  it('skips SESSION_RESPONSE MAC check when no device-auth password is configured', async () => {
+    const { client } = pair(); // server still uses 'device-pass' internally
+    const session = new SecureSession(client, {
+      userId: 2,
+      // deviceAuthPassword intentionally omitted
+      userPassword: 'user-pass',
+      keepaliveMs: 0,
+    });
+    await client.bind();
+    await session.open();
+    assert.equal(session.state, 'authenticated');
+    await session.close();
+  });
+
   it('rejects when the user password is wrong (server returns AUTHENTICATION_FAILED)', async () => {
     const server = new FakeServer({
       deviceAuthPassword: 'device-pass',

@@ -769,17 +769,24 @@
     <label></label>
     <span id="knxip-ets-status" style="color:#888;font-style:italic;"></span>
   </div>
+  <div class="form-row knxip-secure-row" style="margin-top:6px;">
+    <label></label>
+    <span style="color:#666;font-style:italic;font-size:0.92em;line-height:1.35em;display:inline-block;width:calc(70% - 30px);">
+      <b>ETS-managed device:</b> use <i>Fill from</i> above, or paste all three fields from the keyring.<br>
+      <b>Single-password device</b> (web UI only): set <b>User password</b>, leave <b>Device auth pw</b> blank.
+    </span>
+  </div>
   <div class="form-row knxip-secure-row">
     <label for="node-config-input-secureUserId"><i class="fa fa-user"></i> User ID</label>
-    <input type="number" id="node-config-input-secureUserId" min="1" max="127" placeholder="2" />
+    <input type="number" id="node-config-input-secureUserId" min="1" max="127" placeholder="2 (default tunnelling user)" />
+  </div>
+  <div class="form-row knxip-secure-row">
+    <label for="node-config-input-userPassword"><i class="fa fa-key"></i> User pw <span style="color:#c00;">*</span></label>
+    <input type="password" id="node-config-input-userPassword" placeholder="required — tunnel/user password" />
   </div>
   <div class="form-row knxip-secure-row">
     <label for="node-config-input-deviceAuthPassword"><i class="fa fa-key"></i> Device auth pw</label>
-    <input type="password" id="node-config-input-deviceAuthPassword" />
-  </div>
-  <div class="form-row knxip-secure-row">
-    <label for="node-config-input-userPassword"><i class="fa fa-key"></i> User password</label>
-    <input type="password" id="node-config-input-userPassword" />
+    <input type="password" id="node-config-input-deviceAuthPassword" placeholder="optional — blank for single-password devices" />
   </div>
 </script>
 
@@ -797,14 +804,31 @@
   KNX/IP Secure and supported by some modern interfaces for plain tunneling too.</p>
   <h3>KNX/IP Secure</h3>
   <p>Enable <b>Secure</b> to authenticate and encrypt the tunnel per the KNX/IP
-  Secure spec. This forces TCP. You'll need three values from ETS (Reports →
-  Project Security):</p>
+  Secure spec. This forces TCP.</p>
+
+  <h4>Two configuration modes</h4>
+  <p><b>1. ETS-managed device</b> — upload a <code>.knxkeys</code> file in the
+  ETS Project config node, then use <b>Fill from</b> in this dialog to pick an
+  interface. All three fields populate automatically.</p>
+  <p><b>2. Single-password / non-ETS device</b> — many vendor interfaces only
+  expose one password in their web UI. Put that one password in <b>User pw</b>
+  and leave <b>Device auth pw</b> blank. With it blank we skip the
+  SESSION_RESPONSE MAC check (server identity is not cryptographically
+  verified, but the session is still encrypted and the user-password check
+  still authenticates the client to the server).</p>
+
+  <h4>Fields</h4>
   <ul>
-    <li><b>User ID</b> — the tunnelling user index (1 is management; pick a
-    regular user 2..127 for runtime traffic).</li>
-    <li><b>Device authentication password</b> — per-device, set in ETS.</li>
-    <li><b>User password</b> — per-user, set in ETS.</li>
+    <li><b>User ID</b> — the tunnelling user index (default 2). User 1 is
+    management; runtime traffic typically uses 2..127. If unsure on a
+    single-password device, try 2 first, then 1.</li>
+    <li><b>User pw</b> <i>(required)</i> — the per-user / tunnel password.
+    From ETS this is the user password; on a single-password device this is
+    the one password the web UI exposes.</li>
+    <li><b>Device auth pw</b> <i>(optional)</i> — per-device code set in ETS.
+    Leave blank for non-ETS devices that don't expose it.</li>
   </ul>
+
   <p>Passwords are stored encrypted in Node-RED's credentials file, not in the
-  flow JSON.</p>
+  flow JSON. Clearing a password field and saving will wipe the stored value.</p>
 </script>

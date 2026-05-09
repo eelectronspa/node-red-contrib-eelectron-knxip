@@ -58,8 +58,18 @@ export type SecureSessionState =
 export interface SecureSessionOptions {
   /** Tunnelling user id (1..127). */
   userId: number;
-  /** Plaintext device-authentication password (or '' for default '' → derived key all-zeros etc.). */
-  deviceAuthPassword: string;
+  /**
+   * Plaintext device-authentication password.
+   *
+   * Optional: omit (or pass an empty string) for non-ETS / single-password
+   * devices that don't expose a Device Authentication Code in their UI. When
+   * absent, the SESSION_RESPONSE MAC check is skipped — we still authenticate
+   * the client to the server with userId + userPassword, but we cannot
+   * cryptographically verify the server's identity (no MITM protection on the
+   * device-auth side). The KNX/IP Secure handshake otherwise proceeds
+   * normally.
+   */
+  deviceAuthPassword?: string;
   /** Plaintext user password. */
   userPassword: string;
   /**
@@ -105,7 +115,8 @@ export class SecureSession extends EventEmitter {
 
   private readonly clientPriv: Buffer;
   private readonly clientPub: Buffer;
-  private readonly deviceAuthCode: Buffer;
+  /** null when no device-auth password was provided — MAC check is skipped. */
+  private readonly deviceAuthCode: Buffer | null;
   private readonly userPasswordKey: Buffer;
 
   private _state: SecureSessionState = 'idle';
@@ -131,7 +142,9 @@ export class SecureSession extends EventEmitter {
     const kp = generateX25519KeyPair();
     this.clientPriv = kp.privateKey;
     this.clientPub = kp.publicKey;
-    this.deviceAuthCode = deriveDeviceAuthCode(opts.deviceAuthPassword);
+    this.deviceAuthCode = opts.deviceAuthPassword
+      ? deriveDeviceAuthCode(opts.deviceAuthPassword)
+      : null;
     this.userPasswordKey = deriveUserPasswordKey(opts.userPassword);
 
     this.inner.on('message', this._onInnerFrame);
@@ -347,16 +360,27 @@ export class SecureSession extends EventEmitter {
     this._sessionId = body.sessionId;
     this._serverPub = Buffer.from(body.publicKey);
 
-    // Verify SESSION_RESPONSE MAC.
-    const expectedMac = computeSessionResponseMac({
-      deviceAuthCode: this.deviceAuthCode,
-      sessionId: this._sessionId,
-      clientPublicKey: this.clientPub,
-      serverPublicKey: this._serverPub,
-    });
-    if (!expectedMac.equals(body.mac)) {
-      this._failHandshake(new Error('SESSION_RESPONSE MAC verification failed (wrong device auth password?)'));
-      return;
+    // Verify SESSION_RESPONSE MAC — only when a device-auth password was
+    // provided. Single-password / non-ETS devices don't expose a DAC in their
+    // UI, so the user can't supply one; in that case we skip server-identity
+    // verification and rely solely on SESSION_AUTHENTICATE (client→server) for
+    // authentication. The session is still encrypted; only the anti-MITM
+    // guarantee on the server side is forgone.
+    if (this.deviceAuthCode) {
+      const expectedMac = computeSessionResponseMac({
+        deviceAuthCode: this.deviceAuthCode,
+        sessionId: this._sessionId,
+        clientPublicKey: this.clientPub,
+        serverPublicKey: this._serverPub,
+      });
+      if (!expectedMac.equals(body.mac)) {
+        this._failHandshake(new Error('SESSION_RESPONSE MAC verification failed (wrong device auth password?)'));
+        return;
+      }
+    } else {
+      this.opts.logger.warn?.(
+        'SESSION_RESPONSE MAC not verified — no device-auth password configured',
+      );
     }
 
     // Derive shared session key.

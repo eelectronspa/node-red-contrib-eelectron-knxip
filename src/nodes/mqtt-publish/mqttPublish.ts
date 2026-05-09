@@ -20,12 +20,20 @@
 
 import type { Node, NodeAPI, NodeDef, NodeMessage } from 'node-red';
 import { GroupAddress } from '../../core/address';
+import type { APDUValue } from '../../core/apci';
+import { getDpt, hasDpt } from '../../dpt';
 import {
   type TemplateCtx,
   interpolateString,
   renderJsonTemplate,
 } from '../../util/template';
 import type { KnxEtsConfigNode } from '../shared/configNode';
+
+function isApdu(v: unknown): v is APDUValue {
+  if (typeof v !== 'object' || v === null) return false;
+  const k = (v as { kind?: unknown }).kind;
+  return k === 'bytes' || k === 'small';
+}
 
 interface MqttPublishProps {
   etsConfig: string;
@@ -98,6 +106,22 @@ export = function (RED: NodeAPI) {
         return;
       }
 
+      // Decode raw APDU using the ETS-mapped DPT when available. The listener
+      // only decodes if the user hard-codes a DPT on it, so most flows reach
+      // here with `m.payload` still as `{ kind: 'bytes' | 'small', value }`.
+      // We have a per-GA DPT in the ETS map — use it. Fall back to raw on
+      // missing DPT or decode failure (no data loss).
+      let decoded: unknown = m.payload;
+      const dptId = entry?.dpt && hasDpt(entry.dpt) ? entry.dpt : null;
+      if (dptId && isApdu(m.payload)) {
+        try {
+          decoded = getDpt(dptId).decode(m.payload);
+        } catch (err) {
+          self.warn(`DPT ${dptId} decode failed for ${gaStr}: ${(err as Error).message}`);
+          decoded = m.payload;
+        }
+      }
+
       // Pre-compute a few alternate GA representations so users can pick a
       // topic shape that matches their broker conventions:
       //   - {ga}         → "1/1/29"  (KNX long form; MQTT *will* tree this)
@@ -149,7 +173,7 @@ export = function (RED: NodeAPI) {
         tunnelPort,
         tunnelHost,
         tunnelId: tunnel.id ?? '',
-        value: m.payload,
+        value: decoded,
         ts: new Date().toISOString(),
       };
 
@@ -164,7 +188,7 @@ export = function (RED: NodeAPI) {
 
       let payload: unknown;
       if (payloadMode === 'value') {
-        payload = m.payload;
+        payload = decoded;
       } else if (payloadMode === 'template') {
         const rendered = renderJsonTemplate(payloadTemplate, ctx);
         if (!rendered.ok) {
@@ -176,7 +200,7 @@ export = function (RED: NodeAPI) {
       } else {
         // 'object' default — most useful out-of-the-box shape.
         payload = {
-          value: m.payload,
+          value: decoded,
           ga: ctx.ga,
           ...(ctx.gaName ? { gaName: ctx.gaName } : {}),
           ...(ctx.dpt ? { dpt: ctx.dpt } : {}),

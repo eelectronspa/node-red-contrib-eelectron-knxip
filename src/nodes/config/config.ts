@@ -215,18 +215,26 @@ export = function (RED: NodeAPI) {
         : 'udp';
 
     let secureOpts:
-      | { userId: number; deviceAuthPassword: string; userPassword: string }
+      | { userId: number; deviceAuthPassword?: string; userPassword: string }
       | undefined;
     if (useSecure) {
       const userId = toNumber(def.secureUserId, 2);
       const deviceAuthPassword = creds.deviceAuthPassword ?? '';
       const userPassword = creds.userPassword ?? '';
-      if (!deviceAuthPassword || !userPassword) {
+      if (!userPassword) {
         self.warn(
-          'KNX/IP Secure enabled but device auth or user password is empty — connection will fail',
+          'KNX/IP Secure enabled but user password is empty — connection will fail',
         );
       }
-      secureOpts = { userId, deviceAuthPassword, userPassword };
+      // Device auth password is optional: non-ETS / single-password
+      // devices don't expose a Device Authentication Code. When omitted, the
+      // SESSION_RESPONSE MAC check is skipped (server identity unverified)
+      // but the encrypted session and client-side authentication still work.
+      secureOpts = {
+        userId,
+        userPassword,
+        ...(deviceAuthPassword ? { deviceAuthPassword } : {}),
+      };
     }
 
     const client = new TunnelClient({
