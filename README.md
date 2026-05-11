@@ -237,6 +237,24 @@ Available examples:
 
 ---
 
+## 🐳 Docker deployment
+
+A ready-to-run Node-RED container that installs this package is available at:
+
+[**eelectronspa/node-red**](https://github.com/eelectronspa/node-red)
+
+It pulls the latest `main` of this repo, builds it inside the container, and drops the result into the Node-RED user-data directory so flows persist across rebuilds.
+
+```bash
+git clone https://github.com/eelectronspa/node-red.git
+cd node-red/containers
+./docker.bash compose up
+```
+
+Follow the repo's README for `adminAuth` setup and the one-liner that installs `node-red-contrib-eelectron-knxip` into the running container.
+
+---
+
 ## 🧪 Development
 
 Install dependencies:
